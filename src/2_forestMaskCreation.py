@@ -16,7 +16,7 @@ MASK_DIR   = "../output/forest_mask"   # where binary masks will be saved
 YEARS      = [2024]
 
 # NOTE: we can make this better in 2 ways (using morphology and the road plan thing you mentioned). For now, this is a simple threshold-based mask that will be refined in future steps.
-
+# NOTE: Forest-range pixels (NDVI ≥ 0.4) this threshold can be changed 
 # NDVI threshold: pixels >= this value are classified as "forest"
 # 0.4 is standard for dense tropical/mixed forest (Rampachodavaram area)
 # Adjust after visual check in QGIS if needed
