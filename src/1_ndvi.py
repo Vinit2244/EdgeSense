@@ -18,8 +18,8 @@ DISTRICT = "Mayurbhanj"
 
 
 # ─────────────────────────────────────────────
-#NOTEEEEEEE READDDDDDDDDDDDDDDDDD
-# ─────────────────────────────────────────────
+# NOTE: Forest-range pixels (NDVI ≥ 0.4) this threshold can be changed (its just printed in this file, used in 2_forestMaskCreation.py)
+
 # NOTE: I saved "var S2_BANDS = ['B4','B8','B11'];". If your band order is different, adjust the RED_BAND_INDEX, NIR_BAND_INDEX, and SWIR_BAND_INDEX below.
 # ─────────────────────────────────────────────
 # Sentinel-2 band indices (1-based, inside a multi-band TIF)
@@ -138,15 +138,6 @@ def save_rgb(tif_path, output_path,
     print(f"  Composite  : R=B8(NIR)  G=B4(Red)  B=B11(SWIR)")
 
 # ─────────────────────────────────────────────
-# STEP 0: Inspect first file to confirm band order
-# ─────────────────────────────────────────────
-first_file = list(Path(INPUT_DIR).glob(f"{DISTRICT}_sentinel_2024.tif"))
-if first_file:
-    print("── Inspecting 2018 file to verify bands ──")
-    inspect_tif(str(first_file[0]))
-    print()
-
-# ─────────────────────────────────────────────
 # MAIN: Process each year
 # ─────────────────────────────────────────────
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -171,8 +162,8 @@ for year in YEARS:
     print(f"  Stats → Min: {valid.min():.3f} | Mean: {valid.mean():.3f} | Max: {valid.max():.3f}")
     print(f"  Forest-range pixels (NDVI ≥ 0.4): {np.sum(valid >= 0.4):,} / {len(valid):,}")
 
-    # ── RGB ───────────────────────────────────  ← NEW
-    rgb_out = os.path.join(RGB_DIR, f"RGB_{year}_postmonsoon.tif")
-    save_rgb(tif_path, rgb_out)
+    # ── RGB ───────────────────────────────────  
+    # rgb_out = os.path.join(RGB_DIR, f"RGB_{year}_postmonsoon.tif")
+    # save_rgb(tif_path, rgb_out)
 
 print("\nDone. Check ../output/ndvi/ and ../output/rgb/")
