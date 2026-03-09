@@ -81,7 +81,7 @@ python download_aoi_tif.py
 
 This fetches a 13-band Sentinel-2 median composite for each configured year and saves:
 - **13-band GeoTIFF** → `input/tiffs/`
-- **RGB visualisation PNG** → `output/plots/`
+- **RGB visualisation PNG** → `output/visualisations/`
 
 ---
 
@@ -101,7 +101,7 @@ The pipeline runs the following stages in sequence:
 | 1 | `compute_ndvi.py` | Per-year NDVI GeoTIFFs + FCC visualisations |
 | 2 | `create_forest_mask.py` | Binary forest masks (NDVI ≥ threshold) |
 | 3 | `edge_core_separation.py` | Edge/Core encoded rasters |
-| 4 | `fragmentation_metrics.py` | Per-patch CSVs + multi-year summary |
+| 4 | `fragmentation_metrics.py` | Per-year CSVs + multi-year summary |
 | 5 | `change_analysis.py` | Plots visualisations for fragmentation metrics |
 
 ---
