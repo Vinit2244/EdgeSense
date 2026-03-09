@@ -9,6 +9,34 @@
 
 ---
 
+## Setup env
+
+1. Create venv
+```bash
+python3 -m venv edgesense
+```
+
+2. Activate the env
+```bash
+source ./edgesense/bin/activate
+```
+
+3. Install the requirements
+```bash
+pip install requirements.txt
+```
+
+---
+
+## Download dataset
+
+```bash
+chmod +x ./scripts/download_data.sh
+sh ./download_data.sh
+```
+
+---
+
 ## Project Overview
 
 Forest ecosystems are increasingly fragmented due to anthropogenic pressures. Fragmentation increases the **edge-to-core ratio**, exposing larger portions of forest patches to external stressors such as:
@@ -32,17 +60,6 @@ We hypothesize that:
 
 * Higher edge-to-core ratios correlate with stronger ecological stress signals.
 * Smaller and fragmented patches exhibit disproportionately higher edge effects.
-
----
-
-## Project Structure
-
-See repository layout for modular workflow:
-
-* `data/` → datasets
-* `src/` → core logic
-* `notebooks/` → experiments
-* `results/` → outputs
 
 ---
 
