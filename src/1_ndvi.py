@@ -14,6 +14,7 @@ INPUT_DIR = "../input"   # folder with your .tif files
 OUTPUT_DIR = "../output/ndvi"           # where NDVI outputs will be saved
 RGB_DIR    = "../output/rgb"
 YEARS = [2024]
+DISTRICT = "Mayurbhanj"
 
 # ─────────────────────────────────────────────
 #NOTEEEEEEE READDDDDDDDDDDDDDDDDD
@@ -138,7 +139,7 @@ def save_rgb(tif_path, output_path,
 # ─────────────────────────────────────────────
 # STEP 0: Inspect first file to confirm band order
 # ─────────────────────────────────────────────
-first_file = list(Path(INPUT_DIR).glob("Mayurbhanj_sentinel_2024.tif"))
+first_file = list(Path(INPUT_DIR).glob(f"{DISTRICT}_sentinel_2024.tif"))
 if first_file:
     print("── Inspecting 2018 file to verify bands ──")
     inspect_tif(str(first_file[0]))
@@ -153,7 +154,7 @@ os.makedirs(RGB_DIR, exist_ok=True)      # ← NEW
 for year in YEARS:
     print(f"\nProcessing {year}...")
 
-    tif_files = list(Path(INPUT_DIR).glob(f"Mayurbhanj_sentinel_{year}*.tif"))
+    tif_files = list(Path(INPUT_DIR).glob(f"{DISTRICT}_sentinel_{year}*.tif"))
     if not tif_files:
         print(f"  ⚠ No TIF found for {year} — check filename")
         continue
