@@ -7,7 +7,6 @@ import math
 import shutil
 import requests
 import rasterio
-import numpy as np
 import config as cfg
 import geopandas as gpd
 from pathlib import Path
@@ -69,8 +68,8 @@ def load_aoi_geodataframe():
     level = cfg.aoi_level.lower().strip()
 
     if level == "village":
-        shapefile_path = cfg.state_shapefile
-        print(f"AOI level: village — loading state shapefile: {shapefile_path}")
+        shapefile_path = cfg.villages_shapefile
+        print(f"AOI level: village — loading village shapefile: {shapefile_path}")
     elif level in cfg.INDIA_BOUNDARY_SHAPEFILES:
         shapefile_path = cfg.INDIA_BOUNDARY_SHAPEFILES[level]
         print(f"AOI level: {level} — loading India boundary shapefile.")

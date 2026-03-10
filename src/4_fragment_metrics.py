@@ -74,7 +74,7 @@ def main():
             print(f"Files missing for {year}, skipping.")
             continue
 
-        # ── Read inputs ────────────────────────────────────────────────────────
+        # Read inputs
         forest_image, forest_meta = read_tif(mask_path)
         forest_mask = forest_image[0]
 
@@ -82,21 +82,19 @@ def main():
         edge_mask_channel = edge_image[0]   # Channel 0: Edge mask
         core_mask_channel = edge_image[1]   # Channel 1: Core mask
 
-        # ── NoData handling ────────────────────────────────────────────────────
+        # NoData handling
         nodata_val   = forest_meta.get('nodata', 255)
         forest_binary = (forest_mask == 1) & (forest_mask != nodata_val)
 
-        # ── Label connected patches ────────────────────────────────────────────
+        # Label connected patches
         labeled, n_patches = label(forest_binary)
-        print(f"\n{year} → {n_patches} forest patches found. Vectorising metrics …")
+        print(f"\n{year} → {n_patches} forest patches found.")
 
         if n_patches == 0:
             print(f"  No patches found for {year}.")
             all_years_summary.append({"year": year, "n_patches": 0})
             continue
 
-        # ── Bulk pixel counts (all patches at once) ───────────────────────────
-        # labeled.ravel() values run 0 … n_patches; index 0 = background
         all_areas_px = np.bincount(labeled.ravel(), minlength=n_patches + 1)
 
         core_counts  = np.bincount(
@@ -106,17 +104,17 @@ def main():
             labeled[edge_mask_channel == 1].ravel(), minlength=n_patches + 1
         )
 
-        # ── Vectorized perimeter (replaces per-patch binary_erosion loop) ──────
+        # Perimeter count
         perimeter_counts = compute_all_perimeters_vectorized(labeled, n_patches)
 
-        # ── Slice to patch indices 1 … n_patches ──────────────────────────────
+        # Slice to patch indices (1 to n_patches); index 0 is background and ignored downstream
         idx          = np.arange(1, n_patches + 1)
         area_px      = all_areas_px[idx].astype(np.float64)
         perim_px     = perimeter_counts[idx].astype(np.float64)
         core_px      = core_counts[idx].astype(np.float64)
         edge_px      = edge_counts[idx].astype(np.float64)
 
-        # ── Derived area / perimeter metrics ──────────────────────────────────
+        # Derived metrics
         scale         = cfg.scale
         area_ha       = area_px * (scale ** 2) / 10_000
         perimeter_m   = perim_px * scale
@@ -135,7 +133,12 @@ def main():
         core_area_fraction = np.where(area_px > 0, core_px / area_px, np.nan)
 
         # Primary hypothesis variable
-        edge_core_ratio = np.where(core_px > 0, edge_px / core_px, np.nan)
+        edge_core_ratio = np.divide(
+            edge_px,
+            core_px,
+            out=np.full_like(edge_px, np.nan, dtype=float),
+            where=core_px > 0
+        )
 
         # Spatial cohesion
         patch_cohesion = np.where(
@@ -151,12 +154,12 @@ def main():
             np.nan,
         )
 
-        # ── Area filter (≥ 0.5 ha) ─────────────────────────────────────────────
+        # Area filter
         valid = area_ha >= 0.5
 
-        print(f"  {valid.sum()} patches ≥ 0.5 ha (of {n_patches} total). Building DataFrame …")
+        print(f"  {valid.sum()} patches ≥ 0.5 ha (of {n_patches} total).")
 
-        # ── Build DataFrame directly from arrays (no Python loop) ─────────────
+        # Build yearly dataframe
         df_year = pd.DataFrame({
             "year":                  year,
             "patch_id":              idx[valid],
@@ -172,13 +175,22 @@ def main():
             "stress_pressure_index": np.round(stress_pressure_index[valid], 4),
         })
 
-        # ── Save per-year CSV ──────────────────────────────────────────────────
         csv_out = Path(cfg.metrics_dir) / f"FragMetrics_{cfg.aoi_slug}_{year}.csv"
         df_year.to_csv(csv_out, index=False)
 
         if len(df_year) == 0:
             print(f"  No patches ≥ 0.5 ha found for {year}.")
             continue
+
+        # Calculate landscape-level edge-to-core ratio for the valid patches
+        total_edge_area = df_year["edge_area_ha"].sum()
+        total_core_area = df_year["core_area_ha"].sum()
+        
+        # Prevent division by zero if there's absolutely no core habitat
+        if total_core_area > 0:
+            total_ec_ratio = round(total_edge_area / total_core_area, 4)
+        else:
+            total_ec_ratio = np.nan
 
         summary = {
             "year":                       year,
@@ -188,7 +200,7 @@ def main():
             "largest_patch_ha":           round(df_year["area_ha"].max(),                   3),
             "mean_shape_index":           round(df_year["shape_index"].mean(),              4),
             "mean_core_area_fraction":    round(df_year["core_area_fraction"].mean(),       4),
-            "mean_edge_core_ratio":       round(df_year["edge_core_ratio"].mean(),          4),
+            "total_edge_core_ratio":      total_ec_ratio,
             "mean_patch_cohesion":        round(df_year["patch_cohesion"].mean(),           4),
             "mean_stress_pressure_index": round(df_year["stress_pressure_index"].mean(),    4),
         }
@@ -196,11 +208,11 @@ def main():
         print(
             f"  Patches (≥ 0.5 ha): {len(df_year)} | "
             f"Total forest: {summary['total_forest_ha']} ha | "
-            f"Mean Edge:Core: {summary['mean_edge_core_ratio']} | "
+            f"Edge:Core: {summary['total_edge_core_ratio']} | "
             f"Mean Stress Index: {summary['mean_stress_pressure_index']}"
         )
 
-    # ── Save multi-year summary ────────────────────────────────────────────────
+    # Save multi-year summary
     if all_years_summary:
         df_summary = pd.DataFrame(all_years_summary)
         df_summary.to_csv(

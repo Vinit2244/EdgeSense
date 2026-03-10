@@ -10,7 +10,7 @@ from scipy.ndimage import binary_dilation
 
 
 # ============================================================
-# Helpers
+# Helper Functions
 # ============================================================
 def make_circular_kernel(radius: int) -> np.ndarray:
     """Return a boolean 2-D disk of the given radius (diameter = 2r+1)."""
@@ -45,15 +45,10 @@ def main():
         non_forest = (mask == 0)                    # boolean array
         nodata     = (mask == 255)                  # Our explicit NoData background
 
-        # Any forest pixel within `edge_pixels` of a non-forest pixel is "edge".
-        # Dilate the non-forest region by the disk, then restrict to forest.
-        # Note: Because `nodata` is excluded from `non_forest`, the district 
-        # boundary itself won't falsely trigger an "edge" effect.
         non_forest_dilated = binary_dilation(non_forest, structure=disk)
         edge = forest & non_forest_dilated
         core = forest & ~edge
 
-        # Encode as 3-channel mask: (3, H, W)
         # Channel 0 (Red): Edge | Channel 1 (Green): Core | Channel 2 (Blue): Non-Forest
         result = np.zeros((3, mask.shape[0], mask.shape[1]), dtype=np.uint8)
 
@@ -78,9 +73,7 @@ def main():
         save_tif(result, out_path, meta=out_meta, nodata=255)
         print(f"  Saved EdgeCore : {out_path.name}")
 
-        # ==========================================================
         # Custom RGBA PNG Visualization
-        # ==========================================================
         vis_out = Path(cfg.visualisations_dir) / f"EdgeCoreMask_{cfg.aoi_slug}_{year}.png"
         
         visualise_bands(

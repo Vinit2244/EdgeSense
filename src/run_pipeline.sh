@@ -9,7 +9,7 @@ echo ""
 
 echo ""
 echo "Step 1: Computing NDVI..."
-python 1_compute_ndvi.py
+python 1_compute_ndvi_ndmi.py
 
 echo ""
 echo "Step 2: Creating Forest Masks..."
@@ -25,7 +25,7 @@ python 4_fragment_metrics.py
 
 echo ""
 echo "Step 5: Analyzing Changes and Visualizing Trends..."
-python 5_change_analysis.py
+python 5_analyse_change.py
 
 echo ""
 echo "EdgeSense pipeline complete."
