@@ -58,7 +58,7 @@ pip install -r requirements.txt
 
 ### 1. Get the village boundary shapefile
 
-Download the village boundary `.zip` for your state from the [Survey of India portal](https://surveyofindia.gov.in/pages/village-boundary-data-base-of-entire-india), unzip it, and place the folder inside `input/` folder.
+Download the village boundary `.zip` for your state from the [Survey of India portal](https://surveyofindia.gov.in/pages/village-boundary-data-base-of-entire-india) and State/District/Sub-district boundaries from [Download link State_District_Sub-district_Boundary_of_entire_India](https://surveyofindia.gov.in/documents/State_District_Sub-district_Boundary_of_entire_India.zip), unzip it, and place the folder inside `input/` folder.
 
 ### 2. Configure your AOI
 

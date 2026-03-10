@@ -77,11 +77,9 @@ def visualise_bands(image, out_path, band_indices=None, *, percentile_stretch=(2
     if n_bands == 1:
         selected = [0]
         mode = "L"
-
     elif n_bands == 3 and band_indices is None:
         selected = [0, 1, 2]
         mode = "RGB"
-
     else:
         if band_indices is None:
             raise ValueError(
@@ -101,14 +99,38 @@ def visualise_bands(image, out_path, band_indices=None, *, percentile_stretch=(2
         selected = list(band_indices)
         mode = "L" if n_sel == 1 else "RGB"
 
-    # Stretch selected bands to uint8 with percentile clipping
+    # ==========================================================
+    # 1. Build a Universal NoData Mask for Selected Bands
+    # ==========================================================
+    _, H, W = image.shape
+    global_mask = np.zeros((H, W), dtype=bool)
+    
+    for idx in selected:
+        band = image[idx].astype(np.float32)
+        
+        # Handle both specific nodata values and NaN
+        if nodata is not None:
+            if np.isnan(nodata):
+                band_mask = np.isnan(band)
+            else:
+                band_mask = (band == nodata)
+        else:
+            band_mask = np.zeros((H, W), dtype=bool)
+            
+        # Also flag infinite/NaN values automatically
+        band_mask |= ~np.isfinite(band)
+        
+        # Combine with the global mask
+        global_mask |= band_mask
+
+    # ==========================================================
+    # 2. Stretch Function (now uses the global mask)
+    # ==========================================================
     def stretch_to_uint8(band: np.ndarray) -> np.ndarray:
         band = band.astype(np.float32)
 
-        mask = (band == nodata) if nodata is not None else np.zeros(band.shape, dtype=bool)
-        mask |= ~np.isfinite(band)
-
-        valid = band[~mask]
+        # Only calculate stretch percentiles on valid pixels
+        valid = band[~global_mask]
         if valid.size == 0:
             return np.zeros(band.shape, dtype=np.uint8)
 
@@ -120,17 +142,28 @@ def visualise_bands(image, out_path, band_indices=None, *, percentile_stretch=(2
             stretched = np.clip((band - lo) / (hi - lo), 0, 1)
 
         out = (stretched * 255).astype(np.uint8)
-        out[mask] = 0
+        
+        # Black out the RGB/L channels where NoData exists 
+        # (Alpha channel will handle the actual transparency)
+        out[global_mask] = 0 
         return out
 
-    # Visualise
-    if mode == "L":
-        canvas = stretch_to_uint8(image[selected[0]])           # (H, W)
-    else:
-        canvas = np.stack(
-            [stretch_to_uint8(image[i]) for i in selected],
-            axis=-1,                                            # (H, W, 3)
-        )
+    # ==========================================================
+    # 3. Create Alpha Channel and Stack
+    # ==========================================================
+    # 0 = Transparent (NoData), 255 = Opaque (Valid Data)
+    alpha = np.where(global_mask, 0, 255).astype(np.uint8)
 
-    PILImage.fromarray(canvas, mode=mode).save(out_path, format="PNG")
+    if mode == "L":
+        canvas_l = stretch_to_uint8(image[selected[0]])           
+        canvas = np.stack([canvas_l, alpha], axis=-1)               # (H, W, 2)
+        out_mode = "LA"                                             # Luma + Alpha
+    else:
+        canvas_r = stretch_to_uint8(image[selected[0]])
+        canvas_g = stretch_to_uint8(image[selected[1]])
+        canvas_b = stretch_to_uint8(image[selected[2]])
+        canvas = np.stack([canvas_r, canvas_g, canvas_b, alpha], axis=-1) # (H, W, 4)
+        out_mode = "RGBA"                                           # Red Green Blue + Alpha
+
+    PILImage.fromarray(canvas, mode=out_mode).save(out_path, format="PNG")
     return out_path
