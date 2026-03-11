@@ -1,7 +1,6 @@
 # ============================================================
 # Imports
 # ============================================================
-import os
 import numpy as np
 import pandas as pd
 import config as cfg
@@ -24,15 +23,10 @@ def _annotate_trend(ax, x, y, color):
 # ============================================================
 # Main
 # ============================================================
-def main():
-    os.makedirs(cfg.visualisations_dir, exist_ok=True)
-
-    df = pd.read_csv(
-        os.path.join(cfg.metrics_dir, f"FragMetrics_{cfg.aoi_slug}_AllYears_Summary.csv")
-    )
+def analyse_change(df):
     years = df["year"].values
 
-    # ── Layout: 3 rows × 3 cols ──
+    # Layout: 3 rows × 3 cols
     fig = plt.figure(figsize=(18, 14))
     fig.patch.set_facecolor("#f7f7f2")
 
@@ -158,12 +152,28 @@ def main():
     ax9.spines[['top', 'right']].set_visible(False)
     ax9.legend(fontsize=8)
 
+    out_path = cfg.visualisations_dir / f"Fragmentation_Trends_{cfg.aoi_slug}.png"
     plt.savefig(
-        os.path.join(cfg.visualisations_dir, f"Fragmentation_Trends_{cfg.aoi_slug}.png"),
+        out_path,
         dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor()
     )
     print("Plot saved.")
 
 
 if __name__ == "__main__":
-    main()
+    all_years_summary = []
+
+    for year in cfg.years:
+        year_summary_path = cfg.metrics_dir / f"FragMetrics_{cfg.aoi_slug}_{year}.csv"
+
+        if not year_summary_path.exists():
+            print(f"Metrics CSV for {year} not found, skipping.")
+            continue
+        
+        year_summary = pd.read_csv(year_summary_path).iloc[0].to_dict()
+        all_years_summary.append(year_summary)
+
+    cfg.visualisations_dir.mkdir(parents=True, exist_ok=True)
+    analyse_change(pd.DataFrame(all_years_summary))
+
+    print("\nFragmentation trends analysis complete.")

@@ -37,6 +37,12 @@ Forest edges experience higher ecological stress than interior (core) areas due 
 
 ---
 
+## Plugin Setup
+
+1. Clone this repository `git clone https://github.com/Vinit2244/EdgeSense.git`
+2. Open your QGIS
+3. Go to `Settings` -> `User Profiles` -> `Open active profile folder` and copy the path to this directory. We will call this path `active_profile_folder_path` for future references.
+
 ## Setup
 
 ### 1. Create and activate a virtual environment
@@ -62,7 +68,7 @@ Download the village boundary `.zip` for your state from the [Survey of India po
 
 ### 2. Configure your AOI
 
-Open `src/config.py` and update the state name, village name, and any other relevant parameters.
+Open `config/constants.py` and update the state name, village name, and any other relevant parameters.
 
 ### 3. Authenticate Earth Engine
 
@@ -73,36 +79,29 @@ earthengine authenticate
 
 ### 4. Download Sentinel-2 imagery
 
-> Run from inside the `src/` directory.
-
 ```bash
-python download_aoi_tif.py
+python -m tools.download_aoi_tif
 ```
 
-This fetches a 13-band Sentinel-2 median composite for each configured year and saves:
-- **13-band GeoTIFF** → `input/tiffs/`
-- **RGB visualisation PNG** → `output/visualisations/`
+This fetches a multi-band Sentinel-2 median composite for each configured year and saves:
+
+- **Multiband-band GeoTIFF** -> `input/tiffs/`
+- **RGB visualisation PNG** -> `output/visualisations/`
 
 ---
 
 ## Running the Pipeline
 
-> Run from inside the `src/` directory.
-
 ```bash
-chmod +x run_pipeline.sh
-./run_pipeline.sh
+chmod +x srcipts/run_pipeline.sh
+./scripts/run_pipeline.sh
 ```
 
-The pipeline runs the following stages in sequence:
+## Visualising Trends
 
-| Step | Script | Output |
-|---|---|---|
-| 1 | `compute_ndvi.py` | Per-year NDVI GeoTIFFs + FCC visualisations |
-| 2 | `create_forest_mask.py` | Binary forest masks (NDVI ≥ threshold) |
-| 3 | `edge_core_separation.py` | Edge/Core encoded rasters |
-| 4 | `fragmentation_metrics.py` | Per-year CSVs + multi-year summary |
-| 5 | `change_analysis.py` | Plots visualisations for fragmentation metrics |
+```bash
+python -m tools.plot_fragmentation_trends.py
+```
 
 ---
 

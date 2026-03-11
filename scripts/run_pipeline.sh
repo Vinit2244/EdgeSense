@@ -8,24 +8,23 @@ echo "Starting EdgeSense pipeline..."
 echo ""
 
 echo ""
-echo "Step 1: Computing NDVI..."
-python 1_compute_ndvi_ndmi.py
+echo "Step 1: Computing Spectral Indices..."
+python -m src.spectral_indices
 
 echo ""
 echo "Step 2: Creating Forest Masks..."
-python 2_create_forest_mask.py
+python -m src.forest_mask
 
 echo ""
 echo "Step 3: Separating Edge and Core areas..."
-python 3_edge_core_separation.py
+python -m src.edge_core_mask
 
 echo ""
 echo "Step 4: Computing Fragmentation Metrics..."
-python 4_fragment_metrics.py
-
-echo ""
-echo "Step 5: Analyzing Changes and Visualizing Trends..."
-python 5_analyse_change.py
+python -m src.fragmentation_metrics
 
 echo ""
 echo "EdgeSense pipeline complete."
+
+echo ""
+echo "To plot fragmentation trends graphs, run: python -m tools.plot_fragmentation_trends"

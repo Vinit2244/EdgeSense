@@ -12,9 +12,10 @@ import config as cfg
 import geopandas as gpd
 from pathlib import Path
 from shapely.geometry import box
-from utils import visualise_bands
 from shapely.ops import unary_union
+from src.utils import visualise_bands
 from rasterio.mask import mask as rio_mask
+from omnicloudmask import predict_from_array
 from rasterio.merge import merge as rio_merge
 
 
@@ -203,7 +204,7 @@ def apply_cloud_mask(tiff_path):
 
         with rasterio.open(tiff_path, "w", **meta) as dst:
             dst.write(data)
-        print(f"    Saved cloud-masked TIFF → {tiff_path.name}")
+        print(f"    Saved cloud-masked TIFF -> {tiff_path.name}")
     else:
         print("    No cloud/shadow pixels detected — TIFF unchanged.")
 
@@ -261,7 +262,7 @@ def main():
         img_count = collection.size().getInfo()
 
         if img_count > 0:
-            print(f"  Found {img_count} post-monsoon image(s) (Oct–Dec {year}). Using post-monsoon composite.")
+            print(f"  Found {img_count} post-monsoon image(s) (Oct-Dec {year}). Using post-monsoon composite.")
             season_label = "post-monsoon"
         else:
             # Fallback: search the whole year
@@ -344,7 +345,7 @@ def main():
             with rasterio.open(output_tiff, "w", **clipped_meta) as dest:
                 dest.write(clipped_img)
             print("✓")
-            print(f"  Saved masked {len(cfg.bands_to_download)}-band TIFF → {output_tiff}")
+            print(f"  Saved masked {len(cfg.bands_to_download)}-band TIFF -> {output_tiff}")
 
             # ==========================================================
             # OmniCloudMask — detect and null-out cloud/shadow pixels
@@ -368,27 +369,35 @@ def main():
                 try:
                     mask_as_band = cloud_mask[np.newaxis, :, :]  # (1, H, W)
                     visualise_bands(mask_as_band, cloud_vis_path)
-                    print(f"  Saved cloud mask visualisation → {cloud_vis_path.name}")
+                    print(f"  Saved cloud mask visualisation -> {cloud_vis_path.name}")
                 except Exception as e:
                     print(f"  Warning: cloud mask visualisation failed for {year}: {e}")
 
-            # 2. RGB composite from the cloud-masked TIFF
-            #    Band layout: 0=B3(G), 1=B4(R), 2=B8(NIR), 3=B8A, 4=B11(SWIR)
-            rgb_vis_path = Path(cfg.visualisations_dir) / f"RGB_{cfg.aoi_slug}_{year}.png"
+            # RGB visualisation
+            output_png = Path(cfg.visualisations_dir) / f"RGB_{cfg.aoi_slug}_{year}.png"
             try:
-                with rasterio.open(output_tiff) as src:
-                    tiff_data = src.read().astype(np.float32)
-                    tiff_nodata = src.nodata if src.nodata is not None else 0
+                print(f"  Downloading RGB visualisation from GEE...", end=" ", flush=True)
 
-                visualise_bands(
-                    tiff_data,
-                    rgb_vis_path,
-                    band_indices=[cfg.red_band_index, cfg.green_band_index, cfg.swir_band_index],
-                    nodata=tiff_nodata,
-                )
-                print(f"  Saved RGB visualisation → {rgb_vis_path.name}")
+                rgb_image = collection.median().clip(ee_geom).select(cfg.rgb_bands)
+                thumb_url = rgb_image.getThumbURL({
+                    'region':      ee_geom,
+                    'dimensions':  1024,
+                    'format':      'png',
+                    'min':         0,
+                    'max':         3000,
+                    'gamma':       1.4,
+                })
+
+                response = requests.get(thumb_url, timeout=120)
+                if response.status_code == 200:
+                    # Simply save the bytes directly. It is already an RGBA image!
+                    output_png.write_bytes(response.content)
+                    print(f"✓\n  Saved transparent RGB visualisation → {output_png}")
+                else:
+                    print(f"failed (HTTP {response.status_code})")
+
             except Exception as e:
-                print(f"  Warning: RGB visualisation failed for {year}: {e}")
+                print(f"  Warning: RGB visualisation failed for {year}:\n  {e}")
 
         except Exception as e:
             print(f"  Error during mosaic/visualisation for {year}:\n  {e}")
