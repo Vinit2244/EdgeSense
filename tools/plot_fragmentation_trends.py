@@ -1,11 +1,15 @@
 # ============================================================
 # Imports
 # ============================================================
+import sys
 import numpy as np
 import pandas as pd
-import config as cfg
+from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config as cfg
 
 
 # ============================================================

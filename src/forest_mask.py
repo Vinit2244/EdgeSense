@@ -1,10 +1,26 @@
 # ============================================================
 # Imports
 # ============================================================
+import sys
 import numpy as np
-import config as cfg
+from pathlib import Path
 import scipy.ndimage as ndimage
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config as cfg
 from src.utils import visualise_bands, read_tif, save_tif
+
+
+# ============================================================
+# Plugin Functions
+# ============================================================
+def compute_forest_mask_plugin(ndvi, ndmi):
+    forest = (ndvi >= cfg.ndvi_threshold) & (ndmi >= cfg.ndmi_threshold)
+
+    mask = np.zeros_like(ndvi, dtype=np.uint8)
+    mask[forest] = 1
+
+    return mask
 
 
 # ============================================================

@@ -3,20 +3,23 @@
 # ============================================================
 import os
 import ee
+import sys
 import math
 import shutil
 import requests
 import rasterio
 import numpy as np
-import config as cfg
 import geopandas as gpd
 from pathlib import Path
 from shapely.geometry import box
 from shapely.ops import unary_union
-from src.utils import visualise_bands
 from rasterio.mask import mask as rio_mask
 from omnicloudmask import predict_from_array
 from rasterio.merge import merge as rio_merge
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config as cfg
+from src.utils import visualise_bands
 
 
 # Initialize Earth Engine
@@ -73,8 +76,8 @@ def load_aoi_geodataframe():
     if level == "village":
         shapefile_path = cfg.villages_shapefile
         print(f"AOI level: village — loading village shapefile: {shapefile_path}")
-    elif level in cfg.INDIA_BOUNDARY_SHAPEFILES:
-        shapefile_path = cfg.INDIA_BOUNDARY_SHAPEFILES[level]
+    elif level in cfg.india_boundary_shapefiles:
+        shapefile_path = cfg.india_boundary_shapefiles[level]
         print(f"AOI level: {level} — loading India boundary shapefile.")
     else:
         raise ValueError(

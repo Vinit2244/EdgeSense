@@ -1,0 +1,9 @@
+[general]
+name=EdgeSense
+description=Forest Edge Pressure and Fragmentation Analysis.
+version=1.0
+qgisMinimumVersion=3.0
+qgisMaximumVersion=4.99
+author=Medha Prasad
+email=medha.prasad27@gmail.com
+icon=logo.png

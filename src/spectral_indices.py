@@ -1,9 +1,13 @@
 # ============================================================
 # Imports
 # ============================================================
+import sys
 import numpy as np
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 import config as cfg
-from src.utils import visualise_bands, read_tif, save_tif
+from src.utils import read_tif, save_tif, visualise_bands
 
 
 # ============================================================
@@ -53,6 +57,21 @@ def compute_ndmi(image, narrow_nir_idx, swir_idx, nodata_val):
     ndmi[nodata_mask] = np.nan
 
     return ndmi
+
+
+# ============================================================
+# Plugin Functions
+# ============================================================
+def compute_spectral_indices_plugin(image):
+    red = image[cfg.red_band_index].astype(np.float32) / 10000
+    nir = image[cfg.nir_band_index].astype(np.float32) / 10000
+    swir = image[cfg.swir_band_index].astype(np.float32) / 10000
+    narrow_nir = image[cfg.narrow_nir_band_index].astype(np.float32) / 10000
+
+    ndvi = (nir - red) / (nir + red + 1e-10)
+    ndmi = (narrow_nir - swir) / (narrow_nir + swir + 1e-10)
+
+    return ndvi, ndmi
 
 
 # ============================================================

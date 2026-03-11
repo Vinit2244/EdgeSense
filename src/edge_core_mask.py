@@ -1,9 +1,13 @@
 # ============================================================
 # Imports
 # ============================================================
+import sys
 import numpy as np
-import config as cfg
+from pathlib import Path
 from scipy.ndimage import binary_dilation
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config as cfg
 from src.utils import visualise_bands, read_tif, save_tif
 
 
@@ -19,6 +23,44 @@ def make_circular_kernel(radius: int) -> np.ndarray:
 
 
 # ============================================================
+# Plugin Functions
+# ============================================================
+def compute_edge_core_mask_plugin(mask):
+    disk = make_circular_kernel(cfg.edge_pixels)
+
+    forest    = (mask == 1)
+    nonforest = (mask == 0)
+    nodata    = (mask == 255)
+
+    # STRICTLY dilate only the valid non-forest pixels. 
+    # This prevents the district boundary (nodata) from being treated as an edge.
+    nonforest_dilated = binary_dilation(nonforest, structure=disk)
+
+    edge = forest & nonforest_dilated
+    core = forest & ~edge
+
+    # 1. Initialize EVERYTHING as 255 (Transparent NoData)
+    result = np.full((3, mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
+
+    # 2. Paint Edge pixels Red
+    result[0, edge] = 254
+    result[1, edge] = 0
+    result[2, edge] = 0
+
+    # 3. Paint Core pixels Green
+    result[0, core] = 0
+    result[1, core] = 254
+    result[2, core] = 0
+
+    # 4. Paint valid Non-forest pixels Blue
+    result[0, nonforest] = 0
+    result[1, nonforest] = 0
+    result[2, nonforest] = 254
+
+    return result
+
+
+# ============================================================
 # Main
 # ============================================================
 def compute_edge_core_mask(year, mask_path):
@@ -26,58 +68,60 @@ def compute_edge_core_mask(year, mask_path):
         print(f"Mask not found for {year}, skipping.")
         return
 
-    # Circular structuring element — radius = cfg.edge_pixels
     disk = make_circular_kernel(cfg.edge_pixels)
 
-    # Read forest mask
     mask_image, meta = read_tif(mask_path)
-    mask = mask_image[0]                        # (H, W) uint8
+    mask = mask_image[0]                        
 
-    forest     = (mask == 1)                    # boolean array
-    non_forest = (mask == 0)                    # boolean array
-    nodata     = (mask == 255)                  # Our explicit NoData background
+    forest     = (mask == 1)
+    non_forest = (mask == 0)
+    nodata     = (mask == 255)
 
+    # Only dilate valid non-forest pixels
     non_forest_dilated = binary_dilation(non_forest, structure=disk)
+    
     edge = forest & non_forest_dilated
     core = forest & ~edge
 
-    # Channel 0 (Red): Edge | Channel 1 (Green): Core | Channel 2 (Blue): Non-Forest
-    result = np.zeros((3, mask.shape[0], mask.shape[1]), dtype=np.uint8)
+    # Initialize EVERYTHING as 255 (Transparent NoData)
+    result = np.full((3, mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
 
-    result[0, edge]       = 1
-    result[1, core]       = 1
-    result[2, non_forest] = 1
+    # Paint Edge pixels Red
+    result[0, edge] = 254
+    result[1, edge] = 0
+    result[2, edge] = 0
 
-    # Preserve NoData (255) across all three channels
-    result[0, nodata] = 255
-    result[1, nodata] = 255
-    result[2, nodata] = 255
+    # Paint Core pixels Green
+    result[0, core] = 0
+    result[1, core] = 254
+    result[2, core] = 0
 
-    # Update metadata to explicitly state this is a 3-band TIFF now
+    # Paint Non-forest pixels Blue
+    result[0, non_forest] = 0
+    result[1, non_forest] = 0
+    result[2, non_forest] = 254
+
     out_meta = meta.copy()
     out_meta.update({
         "count": 3,
         "nodata": 255
     })
 
-    # Save Edge/Core GeoTIFF
     out_path = cfg.edge_core_mask_dir / f"EdgeCoreMask_{cfg.aoi_slug}_{year}.tif"
     save_tif(result, out_path, meta=out_meta, nodata=255)
     print(f"  Saved EdgeCore : {out_path.name}")
 
-    # Custom RGBA PNG Visualization
     vis_out = cfg.visualisations_dir / f"EdgeCoreMask_{cfg.aoi_slug}_{year}.png"
     
     visualise_bands(
         result,
         out_path=vis_out,
-        band_indices=[0, 1, 2],        # 3 indices trigger RGB mode ("RGBA")
+        band_indices=[0, 1, 2],        
         nodata=255,
         percentile_stretch=(0, 100)
     )
     print(f"  Saved visual   : {vis_out.name}")
 
-    # Print stats
     n_core = int(np.sum(core))
     n_edge = int(np.sum(edge))
     ratio  = (n_edge / n_core) if n_core > 0 else float('inf')

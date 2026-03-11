@@ -9,22 +9,22 @@ echo ""
 
 echo ""
 echo "Step 1: Computing Spectral Indices..."
-python -m src.spectral_indices
+python src/spectral_indices.py
 
 echo ""
 echo "Step 2: Creating Forest Masks..."
-python -m src.forest_mask
+python src/forest_mask.py
 
 echo ""
 echo "Step 3: Separating Edge and Core areas..."
-python -m src.edge_core_mask
+python src/edge_core_mask.py
 
 echo ""
 echo "Step 4: Computing Fragmentation Metrics..."
-python -m src.fragmentation_metrics
+python src/fragmentation_metrics.py
 
 echo ""
 echo "EdgeSense pipeline complete."
 
 echo ""
-echo "To plot fragmentation trends graphs, run: python -m tools.plot_fragmentation_trends"
+echo "To plot fragmentation trends graphs, run: python tools/plot_fragmentation_trends.py"

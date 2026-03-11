@@ -1,11 +1,15 @@
 # ============================================================
 # Imports
 # ============================================================
+import sys
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from scipy.ndimage import label
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 import config as cfg
 from src.utils import read_tif
-from scipy.ndimage import label
 
 
 # ============================================================

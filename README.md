@@ -37,29 +37,6 @@ Forest edges experience higher ecological stress than interior (core) areas due 
 
 ---
 
-## Plugin Setup
-
-1. Clone this repository `git clone https://github.com/Vinit2244/EdgeSense.git`
-2. Open your QGIS
-3. Go to `Settings` -> `User Profiles` -> `Open active profile folder` and copy the path to this directory. We will call this path `active_profile_folder_path` for future references.
-
-## Setup
-
-### 1. Create and activate a virtual environment
-
-```bash
-python3 -m venv edgesense
-source ./edgesense/bin/activate
-```
-
-### 2. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
 ## Data Download
 
 ### 1. Get the village boundary shapefile
@@ -90,14 +67,54 @@ This fetches a multi-band Sentinel-2 median composite for each configured year a
 
 ---
 
-## Running the Pipeline
+## Plugin
+
+### Plugin Setup (Linux & MacOS)
+
+1. Clone this repository `git clone https://github.com/Vinit2244/EdgeSense.git`
+2. Open your QGIS -> Go to `Settings` -> `User Profiles` -> `Open active profile folder` -> Copy the path to this directory and update the variable `active_profile_folder_path` in `config/constant.py` file and `TARGET_DIR` variable in `scripts/copy_files.sh` file.
+3. Run: `chmod +x scripts/copy_files.sh`
+4. Then run the script to copy the necessary files into your plugins folder `./scripts/copy_files.sh`.
+
+### Plugin Usage
+
+<span style="color:red">Plese NOTE that the current version of this plugin only works with the data downloaded using the given tools/download_aoi_tif.py file as we have hardcoded the channels to download and their index in config/config.py file.</span>
+
+<span style="color:green">In future we will update the code to take settings input from the UI panel itself.</span>
+
+1. Start QGIS
+2. Go to `Plugins` -> `Manage and Install Plugins...` -> `All` -> Search for `EdgeSense` -> Make sure it is enabled (ticked)
+3. Drag and drop your original multi-band .tif file into the QGIS -> Press on the EdgeSense icon: <img src="./logo.png" height=20>.
+4. Follow the steps as indicated to get each output layer.
+5. To download any layer, select that layer and click on `Save active layer` option.
+
+## Normal Pipeline Usage
+
+### Setup
+
+#### 1. Create and activate a virtual environment
+
+```bash
+python3 -m venv edgesense
+source ./edgesense/bin/activate
+```
+
+#### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+### Run the complete pipeline
 
 ```bash
 chmod +x srcipts/run_pipeline.sh
 ./scripts/run_pipeline.sh
 ```
 
-## Visualising Trends
+### Visualising Trends
 
 ```bash
 python -m tools.plot_fragmentation_trends.py
