@@ -62,9 +62,9 @@ def main():
         if cfg.mask_type == "smooth_boundary":
             # Create a boolean array of just the forest pixels
             binary_forest = (forest_mask == 1)
-            
-            # Define a 3x3 structural element (adjust size for more/less aggressive smoothing)
-            struct = np.ones((3, 3), dtype=bool)
+
+            # Define a structural element (adjust size for more/less aggressive smoothing)
+            struct = np.ones((cfg.smooth_kernel_size, cfg.smooth_kernel_size), dtype=bool)
             
             # Step A: Opening removes thin protrusions and isolated pixels
             smoothed_forest = ndimage.binary_opening(binary_forest, structure=struct)

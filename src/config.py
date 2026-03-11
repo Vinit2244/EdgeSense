@@ -23,7 +23,8 @@ image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
 # ============================================================
 # Paths
 # ============================================================
-project_root       = Path(__file__).resolve().parents[1]
+project_root       = project_root = Path.home() / "Desktop" / "IIITH" / "Sem8" / "ORS" / "Project" / "EdgeSense"
+# project_root       = Path(__file__).resolve().parents[1]
 input_dir          = project_root / 'input'
 
 # Village-level: state-specific shapefile
@@ -79,6 +80,7 @@ ndmi_threshold = 0.1
 # Forest Cover Configurations
 # ============================================================
 mask_type = "smooth_boundary"  # "raw" or "smooth_boundary"
+smooth_kernel_size = 3         # Size of the smoothing kernel (must be odd, e.g., 3, 5, 7)
 
 
 # ============================================================

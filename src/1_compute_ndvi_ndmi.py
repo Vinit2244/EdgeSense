@@ -110,28 +110,37 @@ def main():
         # --------------------------------------------------------
         # Visualisations
         # --------------------------------------------------------
-        # NDVI Grayscale
+        # NDVI - green
         ndvi_vis_out = Path(cfg.visualisations_dir) / f"NDVI_{cfg.aoi_slug}_{year}.png"
-        visualise_bands(
-            ndvi_save[np.newaxis, ...], 
-            out_path=ndvi_vis_out, 
-            band_indices=[0], 
-            nodata=-9999,
-            percentile_stretch=(2, 98) # Slight stretch for better contrast
-        )
 
-        # NDMI Grayscale
-        ndmi_vis_out = Path(cfg.visualisations_dir) / f"NDMI_{cfg.aoi_slug}_{year}.png"
+        ndvi_rgb = np.zeros((3, ndvi_save.shape[0], ndvi_save.shape[1]), dtype=np.float32)
+        ndvi_rgb[1] = ndvi_save  # G channel
+
         visualise_bands(
-            ndmi_save[np.newaxis, ...], 
-            out_path=ndmi_vis_out, 
-            band_indices=[0], 
+            ndvi_rgb,
+            out_path=ndvi_vis_out,
+            band_indices=[0,1,2],
             nodata=-9999,
             percentile_stretch=(2, 98)
         )
 
-        # FCC visualisation (NIR, Red, SWIR)
+        # NDMI - blue
+        ndmi_vis_out = Path(cfg.visualisations_dir) / f"NDMI_{cfg.aoi_slug}_{year}.png"
+
+        ndmi_rgb = np.zeros((3, ndmi_save.shape[0], ndmi_save.shape[1]), dtype=np.float32)
+        ndmi_rgb[2] = ndmi_save  # B channel
+
+        visualise_bands(
+            ndmi_rgb,
+            out_path=ndmi_vis_out,
+            band_indices=[0,1,2],
+            nodata=-9999,
+            percentile_stretch=(2, 98)
+        )
+
+        # FCC Visualization
         fcc_out = Path(cfg.visualisations_dir) / f"FCC_{cfg.aoi_slug}_{year}.png"
+
         visualise_bands(
             image,
             out_path=fcc_out,
