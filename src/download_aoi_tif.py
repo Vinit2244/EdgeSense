@@ -200,17 +200,33 @@ def main():
     for year in cfg.years:
         print(f"\n--- Processing Year: {year} ---")
 
+        # ── 1. Try post-monsoon season first (Oct–Dec) ────────────────────────
         collection = (ee.ImageCollection(cfg.image_collection)
-                      .filterBounds(ee_geom)
-                      .filterDate(f'{year}-01-01', f'{year}-12-31')
-                      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cfg.max_cloud_cover)))
+                    .filterBounds(ee_geom)
+                    .filterDate(f'{year}-10-01', f'{year}-12-31')
+                    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cfg.max_cloud_cover)))
 
         img_count = collection.size().getInfo()
-        if img_count == 0:
-            print(f"  No images found for {year} with <{cfg.max_cloud_cover}% cloud cover. Skipping.")
-            continue
 
-        print(f"  Found {img_count} images. Building median composite...")
+        if img_count > 0:
+            print(f"  Found {img_count} post-monsoon image(s) (Oct–Dec {year}). Using post-monsoon composite.")
+            season_label = "post-monsoon"
+        else:
+            # ── 2. Fallback: search the whole year ────────────────────────────
+            print(f"  No post-monsoon images found for {year}. Falling back to full-year search...")
+            collection = (ee.ImageCollection(cfg.image_collection)
+                        .filterBounds(ee_geom)
+                        .filterDate(f'{year}-01-01', f'{year}-12-31')
+                        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cfg.max_cloud_cover)))
+
+            img_count = collection.size().getInfo()
+            season_label = "full-year"
+
+            if img_count == 0:
+                print(f"  No images found for {year} (post-monsoon or full-year) with <{cfg.max_cloud_cover}% cloud cover. Skipping.")
+                continue
+
+        print(f"  Found {img_count} image(s) [{season_label}]. Building median composite...")
         median_image = collection.median().clip(ee_geom).select(cfg.bands_to_download)
 
         # Temporary folder to hold this year's tiles before mosaicking
