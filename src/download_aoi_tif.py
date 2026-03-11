@@ -7,10 +7,12 @@ import math
 import shutil
 import requests
 import rasterio
+import numpy as np
 import config as cfg
 import geopandas as gpd
 from pathlib import Path
 from shapely.geometry import box
+from utils import visualise_bands
 from shapely.ops import unary_union
 from rasterio.mask import mask as rio_mask
 from rasterio.merge import merge as rio_merge
@@ -158,6 +160,56 @@ def mosaic_tiles(tile_paths, output_path):
         ds.close()
 
 
+def compute_cloud_mask(arr):
+    """
+    arr: (bands, H, W) float32 array normalised to [0, 1].
+    Returns:
+        cloud_mask     : (H, W) uint8 — 1 = clear, 0 = cloud / shadow
+        cloud_pct      : % of pixels that are cloud or shadow
+        haze_pct       : % of pixels that are thin cloud / haze (label 2)
+    """
+    # predict_from_array expects (3, H, W): Red, Green, NIR
+    raw_mask = predict_from_array(arr[[cfg.red_band_index, cfg.green_band_index, cfg.nir_band_index], :, :])
+
+    haze_pct = float((raw_mask == 2).mean()) * 100
+
+    # Collapse thin cloud + shadow into the same "bad" class
+    raw_mask[raw_mask > 1] = 1
+
+    # Invert: 1 = clear, 0 = cloud / shadow
+    cloud_mask = (1 - raw_mask).astype(np.uint8)
+    cloud_mask = np.squeeze(cloud_mask)
+
+    cloud_pct = float(1.0 - cloud_mask.mean()) * 100
+
+    return cloud_mask, cloud_pct, haze_pct
+
+
+def apply_cloud_mask(tiff_path):
+    with rasterio.open(tiff_path) as src:
+        data   = src.read().astype(np.float32)   # (bands, H, W)
+        meta   = src.meta.copy()
+        nodata = src.nodata if src.nodata is not None else 0
+
+    arr = data / 10_000.0
+
+    cloud_mask, cloud_pct, haze_pct = compute_cloud_mask(arr)
+    print(f"✓  ({cloud_pct:.1f}% cloud/shadow, {haze_pct:.1f}% haze)")
+
+    if cloud_mask.min() == 0:
+        bad = (cloud_mask == 0)
+        data[:, bad] = nodata
+        meta.update({"nodata": nodata, "dtype": "float32"})
+
+        with rasterio.open(tiff_path, "w", **meta) as dst:
+            dst.write(data)
+        print(f"    Saved cloud-masked TIFF → {tiff_path.name}")
+    else:
+        print("    No cloud/shadow pixels detected — TIFF unchanged.")
+
+    return cloud_pct, haze_pct, cloud_mask  # <-- also return the mask
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -200,7 +252,7 @@ def main():
     for year in cfg.years:
         print(f"\n--- Processing Year: {year} ---")
 
-        # ── 1. Try post-monsoon season first (Oct–Dec) ────────────────────────
+        # Try post-monsoon season first (Oct–Dec)
         collection = (ee.ImageCollection(cfg.image_collection)
                     .filterBounds(ee_geom)
                     .filterDate(f'{year}-10-01', f'{year}-12-31')
@@ -212,7 +264,7 @@ def main():
             print(f"  Found {img_count} post-monsoon image(s) (Oct–Dec {year}). Using post-monsoon composite.")
             season_label = "post-monsoon"
         else:
-            # ── 2. Fallback: search the whole year ────────────────────────────
+            # Fallback: search the whole year
             print(f"  No post-monsoon images found for {year}. Falling back to full-year search...")
             collection = (ee.ImageCollection(cfg.image_collection)
                         .filterBounds(ee_geom)
@@ -273,7 +325,7 @@ def main():
                 print("✓")
 
             # ==========================================================
-            # NEW: Strictly Mask the TIFF to the Shapely Polygon
+            # Strictly Mask the TIFF to the Shapely Polygon
             # ==========================================================
             print("  Applying strict polygon mask to TIFF...", end=" ", flush=True)
             with rasterio.open(output_tiff) as src:
@@ -295,32 +347,48 @@ def main():
             print(f"  Saved masked {len(cfg.bands_to_download)}-band TIFF → {output_tiff}")
 
             # ==========================================================
-            # NEW: Download PNG and Convert Black Background to Transparent
+            # OmniCloudMask — detect and null-out cloud/shadow pixels
             # ==========================================================
-            output_png = Path(cfg.visualisations_dir) / f"RGB_{cfg.aoi_slug}_{year}.png"
+            print("  Running OmniCloudMask...", end=" ", flush=True)
+            cloud_mask = None
             try:
-                print(f"  Downloading RGB visualisation from GEE...", end=" ", flush=True)
-
-                rgb_image = collection.median().clip(ee_geom).select(cfg.rgb_bands)
-                thumb_url = rgb_image.getThumbURL({
-                    'region':      ee_geom,
-                    'dimensions':  1024,
-                    'format':      'png',
-                    'min':         0,
-                    'max':         3000,
-                    'gamma':       1.4,
-                })
-
-                response = requests.get(thumb_url, timeout=120)
-                if response.status_code == 200:
-                    # Simply save the bytes directly. It is already an RGBA image!
-                    output_png.write_bytes(response.content)
-                    print(f"✓\n  Saved transparent RGB visualisation → {output_png}")
-                else:
-                    print(f"failed (HTTP {response.status_code})")
-
+                cloud_pct, haze_pct, cloud_mask = apply_cloud_mask(output_tiff)
+                print(f"  Cloud masking complete — {cloud_pct:.1f}% masked "
+                      f"({haze_pct:.1f}% was thin cloud/haze).")
             except Exception as e:
-                print(f"  Warning: RGB visualisation failed for {year}:\n  {e}")
+                print(f"  Warning: cloud masking failed for {year}: {e}")
+
+            # ==========================================================
+            # Visualisations — cloud mask + RGB from cloud-masked TIFF
+            # ==========================================================
+
+            # 1. Binary cloud mask PNG (1 = clear, 0 = cloud/shadow)
+            if cloud_mask is not None:
+                cloud_vis_path = Path(cfg.visualisations_dir) / f"CloudMask_{cfg.aoi_slug}_{year}.png"
+                try:
+                    mask_as_band = cloud_mask[np.newaxis, :, :]  # (1, H, W)
+                    visualise_bands(mask_as_band, cloud_vis_path)
+                    print(f"  Saved cloud mask visualisation → {cloud_vis_path.name}")
+                except Exception as e:
+                    print(f"  Warning: cloud mask visualisation failed for {year}: {e}")
+
+            # 2. RGB composite from the cloud-masked TIFF
+            #    Band layout: 0=B3(G), 1=B4(R), 2=B8(NIR), 3=B8A, 4=B11(SWIR)
+            rgb_vis_path = Path(cfg.visualisations_dir) / f"RGB_{cfg.aoi_slug}_{year}.png"
+            try:
+                with rasterio.open(output_tiff) as src:
+                    tiff_data = src.read().astype(np.float32)
+                    tiff_nodata = src.nodata if src.nodata is not None else 0
+
+                visualise_bands(
+                    tiff_data,
+                    rgb_vis_path,
+                    band_indices=[cfg.red_band_index, cfg.green_band_index, cfg.swir_band_index],
+                    nodata=tiff_nodata,
+                )
+                print(f"  Saved RGB visualisation → {rgb_vis_path.name}")
+            except Exception as e:
+                print(f"  Warning: RGB visualisation failed for {year}: {e}")
 
         except Exception as e:
             print(f"  Error during mosaic/visualisation for {year}:\n  {e}")

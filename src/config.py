@@ -57,7 +57,7 @@ metrics_dir        = output_dir / 'fragmentation_metrics'
 # ============================================================
 max_cloud_cover   = 1  # 1% cloud cover limit
 n_tiles           = 16 # Total tiles to split into (e.g., 9, 16, 25, 36)
-bands_to_download = ['B4', 'B8', 'B8A', 'B11']
+bands_to_download = ['B3', 'B4', 'B8', 'B8A', 'B11']
 rgb_bands         = ['B4', 'B3', 'B2']
 
 
@@ -66,10 +66,12 @@ rgb_bands         = ['B4', 'B3', 'B2']
 # ============================================================
 # NOTE: 0-based band indices, but rasterio (and Earth Engine) use 1-based indexing for band selection.
 # download_aoi_tiff.py saves 5 bands in this order: B2, B3, B4, B8, B11
-red_band_index        = 0  # B4
-nir_band_index        = 1  # B8
-narrow_nir_band_index = 2  # B8A
-swir_band_index       = 3  # B11  ← used for FCC visualisation
+green_band_index      = 0  # B3
+red_band_index        = 1  # B4
+nir_band_index        = 2  # B8
+narrow_nir_band_index = 3  # B8A
+swir_band_index       = 4  # B11  ← used for FCC visualisation
+mask_gen_bands        = [1, 0, 2]
 
 # Threshold for forest-range pixels (NDVI ≥ this value means "forest")
 ndvi_threshold = 0.4
