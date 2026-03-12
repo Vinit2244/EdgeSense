@@ -16,11 +16,15 @@ echo "Step 2: Creating Forest Masks..."
 python src/forest_mask.py
 
 echo ""
-echo "Step 3: Separating Edge and Core areas..."
+echo "Step 3: Computing Road Masks (OpenStreetMap)..."
+python src/road_mask.py
+
+echo ""
+echo "Step 4: Separating Edge and Core areas (road-adjusted)..."
 python src/edge_core_mask.py
 
 echo ""
-echo "Step 4: Computing Fragmentation Metrics..."
+echo "Step 5: Computing Fragmentation Metrics..."
 python src/fragmentation_metrics.py
 
 echo ""

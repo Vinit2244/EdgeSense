@@ -48,6 +48,12 @@ smooth_kernel_size = 3         # Size of the smoothing kernel (must be odd, e.g.
 
 
 # ============================================================
+# Road-Mask Configurations
+# ============================================================
+road_buffer_m = 15 # In meters
+
+
+# ============================================================
 # Edge-Core Configurations
 # ============================================================
 edge_pixels = 10

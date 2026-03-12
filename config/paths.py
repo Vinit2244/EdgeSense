@@ -39,3 +39,4 @@ metrics_dir        = output_dir / 'fragmentation_metrics'
 forest_mask_dir    = output_dir / 'forest_mask'
 visualisations_dir = output_dir / 'visualisations'
 edge_core_mask_dir = output_dir / 'edge_core'
+road_mask_dir      = output_dir / "road_masks"
