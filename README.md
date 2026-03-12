@@ -125,3 +125,8 @@ python -m tools.plot_fragmentation_trends.py
 ## License
 
 [MIT License](./LICENSE)
+
+## Caveats
+
+* We are getting road masks but we don't have access to road masks for all years so we are just taking the current road mask and applying it to all the years throughout.
+* Computation of fragmentation metrics requires edge-core mask, forest mask and road mask so if using the plugin make sure to download and save those before running the fragmentation metrics calculation code.

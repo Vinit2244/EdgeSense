@@ -42,7 +42,7 @@ def compute_all_perimeters_vectorized(labeled: np.ndarray, n_patches: int) -> np
     is_boundary = diff_r | diff_l | diff_d | diff_u
 
     # Count boundary pixels per patch label
-    boundary_labels = labeled[is_boundary]  # 1-D array of patch IDs at boundary pixels
+    boundary_labels  = labeled[is_boundary]
     perimeter_counts = np.bincount(boundary_labels, minlength=n_patches + 1)
     return perimeter_counts
 
@@ -50,60 +50,70 @@ def compute_all_perimeters_vectorized(labeled: np.ndarray, n_patches: int) -> np
 # ============================================================
 # Main
 # ============================================================
-def compute_frag_metrics(year, mask_path, edge_path):
-    if not mask_path.exists() or not edge_path.exists():
+def compute_frag_metrics(year, forest_mask_path, edge_path, road_mask_path=None):
+    if not forest_mask_path.exists() or not edge_path.exists():
         print(f"Files missing for {year}, skipping.")
         return
 
     # Read inputs
-    forest_image, forest_meta = read_tif(mask_path)
+    forest_image, forest_meta = read_tif(forest_mask_path)
     forest_mask = forest_image[0]
 
     edge_image, _ = read_tif(edge_path)
-    edge_mask_channel = edge_image[0]   # Channel 0: Edge mask
-    core_mask_channel = edge_image[1]   # Channel 1: Core mask
+    edge_mask_channel = edge_image[0]   # Channel 0: Edge pixels  (value 254 = edge)
+    core_mask_channel = edge_image[1]   # Channel 1: Core pixels  (value 254 = core)
 
-    # NoData handling
-    nodata_val   = forest_meta.get('nodata', 255)
+    # Handle nodata
+    nodata_val    = forest_meta.get('nodata', 255)
     forest_binary = (forest_mask == 1) & (forest_mask != nodata_val)
 
-    # Label connected patches
+    # Subtract road pixels from forest mask
+    if road_mask_path is not None and road_mask_path.exists():
+        road_image, _ = read_tif(road_mask_path)
+        road_mask     = road_image[0]
+        road_pixels   = (road_mask == 1)
+        n_removed     = int(np.sum(forest_binary & road_pixels))
+        forest_binary = forest_binary & ~road_pixels
+        print(f"  Road mask applied  : {n_removed:,} forest pixels excluded before patch labeling.")
+    else:
+        if road_mask_path is not None:
+            print(f"  Road mask not found at {road_mask_path.name} — skipping road subtraction.")
+
+    # Label connected forest patches
     labeled, n_patches = label(forest_binary)
     print(f"\n{year} -> {n_patches} forest patches found.")
 
     if n_patches == 0:
         print(f"  No patches found for {year}.")
-        all_years_summary.append({"year": year, "n_patches": 0})
         return
 
     all_areas_px = np.bincount(labeled.ravel(), minlength=n_patches + 1)
 
     core_counts  = np.bincount(
-        labeled[core_mask_channel == 1].ravel(), minlength=n_patches + 1
+        labeled[core_mask_channel == 254].ravel(), minlength=n_patches + 1
     )
     edge_counts  = np.bincount(
-        labeled[edge_mask_channel == 1].ravel(), minlength=n_patches + 1
+        labeled[edge_mask_channel == 254].ravel(), minlength=n_patches + 1
     )
 
-    # Perimeter count
+    # Compute perimeter counts
     perimeter_counts = compute_all_perimeters_vectorized(labeled, n_patches)
 
-    # Slice to patch indices (1 to n_patches); index 0 is background and ignored downstream
-    idx          = np.arange(1, n_patches + 1)
-    area_px      = all_areas_px[idx].astype(np.float64)
-    perim_px     = perimeter_counts[idx].astype(np.float64)
-    core_px      = core_counts[idx].astype(np.float64)
-    edge_px      = edge_counts[idx].astype(np.float64)
+    # Slice to patch indices 1..n_patches (index 0 = background, ignored)
+    idx      = np.arange(1, n_patches + 1)
+    area_px  = all_areas_px[idx].astype(np.float64)
+    perim_px = perimeter_counts[idx].astype(np.float64)
+    core_px  = core_counts[idx].astype(np.float64)
+    edge_px  = edge_counts[idx].astype(np.float64)
 
-    # Derived metrics
-    scale         = cfg.scale
-    area_ha       = area_px * (scale ** 2) / 10_000
-    perimeter_m   = perim_px * scale
+    # Derive metrics
+    scale       = cfg.scale
+    area_ha     = area_px * (scale ** 2) / 10_000
+    perimeter_m = perim_px * scale
 
     # Shape index: 1 = circle, higher = more irregular
-    shape_index   = perimeter_m / (2.0 * np.sqrt(np.pi * area_px * scale ** 2))
+    shape_index = perimeter_m / (2.0 * np.sqrt(np.pi * area_px * scale ** 2))
 
-    # Log-transform (NaN where shape_index ≤ 0)
     with np.errstate(divide='ignore', invalid='ignore'):
         log_shape_index = np.where(shape_index > 0, np.log(shape_index), np.nan)
 
@@ -135,24 +145,22 @@ def compute_frag_metrics(year, mask_path, edge_path):
         np.nan,
     )
 
-    # Area filter
     valid = area_ha >= 0.5
-
     print(f"  {valid.sum()} patches ≥ 0.5 ha (of {n_patches} total).")
 
     # Build yearly dataframe
     df_year = pd.DataFrame({
         "year":                  year,
         "patch_id":              idx[valid],
-        "area_ha":               np.round(area_ha[valid],             3),
-        "perimeter_m":           np.round(perimeter_m[valid],         1),
-        "shape_index":           np.round(shape_index[valid],         4),
-        "log_shape_index":       np.round(log_shape_index[valid],     4),
-        "core_area_ha":          np.round(core_area_ha[valid],        3),
-        "edge_area_ha":          np.round(edge_area_ha[valid],        3),
-        "core_area_fraction":    np.round(core_area_fraction[valid],  4),
-        "edge_core_ratio":       np.round(edge_core_ratio[valid],     4),
-        "patch_cohesion":        np.round(patch_cohesion[valid],      4),
+        "area_ha":               np.round(area_ha[valid],               3),
+        "perimeter_m":           np.round(perimeter_m[valid],           1),
+        "shape_index":           np.round(shape_index[valid],           4),
+        "log_shape_index":       np.round(log_shape_index[valid],       4),
+        "core_area_ha":          np.round(core_area_ha[valid],          3),
+        "edge_area_ha":          np.round(edge_area_ha[valid],          3),
+        "core_area_fraction":    np.round(core_area_fraction[valid],    4),
+        "edge_core_ratio":       np.round(edge_core_ratio[valid],       4),
+        "patch_cohesion":        np.round(patch_cohesion[valid],        4),
         "stress_pressure_index": np.round(stress_pressure_index[valid], 4),
     })
 
@@ -163,31 +171,26 @@ def compute_frag_metrics(year, mask_path, edge_path):
         print(f"  No patches ≥ 0.5 ha found for {year}.")
         return
 
-    # Calculate landscape-level edge-to-core ratio for the valid patches
+    # Landscape-level summary
     total_edge_area = df_year["edge_area_ha"].sum()
     total_core_area = df_year["core_area_ha"].sum()
-    
-    # Prevent division by zero if there's absolutely no core habitat
-    if total_core_area > 0:
-        total_ec_ratio = round(total_edge_area / total_core_area, 4)
-    else:
-        total_ec_ratio = np.nan
+    total_ec_ratio  = round(total_edge_area / total_core_area, 4) if total_core_area > 0 else np.nan
 
     summary = {
         "year":                       year,
         "n_patches":                  len(df_year),
-        "total_forest_ha":            round(df_year["area_ha"].sum(),                   2),
-        "mean_patch_ha":              round(df_year["area_ha"].mean(),                  3),
-        "largest_patch_ha":           round(df_year["area_ha"].max(),                   3),
-        "mean_shape_index":           round(df_year["shape_index"].mean(),              4),
-        "mean_core_area_fraction":    round(df_year["core_area_fraction"].mean(),       4),
+        "total_forest_ha":            round(df_year["area_ha"].sum(),                2),
+        "mean_patch_ha":              round(df_year["area_ha"].mean(),               3),
+        "largest_patch_ha":           round(df_year["area_ha"].max(),                3),
+        "mean_shape_index":           round(df_year["shape_index"].mean(),           4),
+        "mean_core_area_fraction":    round(df_year["core_area_fraction"].mean(),    4),
         "total_edge_core_ratio":      total_ec_ratio,
-        "mean_patch_cohesion":        round(df_year["patch_cohesion"].mean(),           4),
-        "mean_stress_pressure_index": round(df_year["stress_pressure_index"].mean(),    4),
+        "mean_patch_cohesion":        round(df_year["patch_cohesion"].mean(),        4),
+        "mean_stress_pressure_index": round(df_year["stress_pressure_index"].mean(), 4),
     }
 
     print(
-        f"  Patches (≥ 0.5 ha): {len(df_year)} | "
+        f"  Patches (>= 0.5 ha): {len(df_year)} | "
         f"Total forest: {summary['total_forest_ha']} ha | "
         f"Edge:Core: {summary['total_edge_core_ratio']} | "
         f"Mean Stress Index: {summary['mean_stress_pressure_index']}"
@@ -202,10 +205,22 @@ if __name__ == "__main__":
     all_years_summary = []
 
     for year in cfg.years:
-        mask_path = cfg.forest_mask_dir    / f"ForestMask_{cfg.aoi_slug}_{year}.tif"
-        edge_path = cfg.edge_core_mask_dir / f"EdgeCoreMask_{cfg.aoi_slug}_{year}.tif"
-        df_year_summary = pd.DataFrame([compute_frag_metrics(year, mask_path, edge_path)])
-        df_year_summary.to_csv(
-            cfg.metrics_dir / f"FragMetrics_{cfg.aoi_slug}_{year}.csv",
+        forest_mask_path = cfg.forest_mask_dir    / f"ForestMask_{cfg.aoi_slug}_{year}.tif"
+        edge_path        = cfg.edge_core_mask_dir / f"EdgeCoreMask_{cfg.aoi_slug}_{year}.tif"
+        road_mask_path   = cfg.road_mask_dir      / f"RoadMask_{cfg.aoi_slug}_{year}.tif"
+
+        summary = compute_frag_metrics(year, forest_mask_path, edge_path, road_mask_path)
+
+        if summary is not None:
+            all_years_summary.append(summary)
+            pd.DataFrame([summary]).to_csv(
+                cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_{year}.csv",
+                index=False,
+            )
+
+    if all_years_summary:
+        pd.DataFrame(all_years_summary).to_csv(
+            cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_all_years.csv",
             index=False,
         )
+        print(f"\nAll-years summary saved.")

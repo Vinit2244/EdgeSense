@@ -168,16 +168,18 @@ if __name__ == "__main__":
     all_years_summary = []
 
     for year in cfg.years:
-        year_summary_path = cfg.metrics_dir / f"FragMetrics_{cfg.aoi_slug}_{year}.csv"
-
+        year_summary_path = cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_{year}.csv"
         if not year_summary_path.exists():
-            print(f"Metrics CSV for {year} not found, skipping.")
+            print(f"Summary CSV for {year} not found, skipping.")
             continue
-        
+
         year_summary = pd.read_csv(year_summary_path).iloc[0].to_dict()
         all_years_summary.append(year_summary)
 
+    if not all_years_summary:
+        print("No summary data found. Run the pipeline first.")
+        sys.exit(1)
+
     cfg.visualisations_dir.mkdir(parents=True, exist_ok=True)
     analyse_change(pd.DataFrame(all_years_summary))
-
     print("\nFragmentation trends analysis complete.")
