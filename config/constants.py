@@ -50,10 +50,10 @@ smooth_kernel_size = 3         # Size of the smoothing kernel (must be odd, e.g.
 # ============================================================
 # Road-Mask Configurations
 # ============================================================
-road_buffer_m = 15 # In meters
+road_buffer_m = 10 # In meters
 
 
 # ============================================================
 # Edge-Core Configurations
 # ============================================================
-edge_pixels = 10
+edge_width = 100 # In meters; this is the width of the "edge" zone around non-forest areas. Adjust as needed based on ecological definitions and scale of analysis.

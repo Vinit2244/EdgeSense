@@ -48,17 +48,16 @@ def compute_ndmi(image, narrow_nir_idx, swir_idx, nodata_val):
 # ============================================================
 # Plugin Functions
 # ============================================================
-def compute_spectral_indices_plugin(image):
-    red = image[cfg.red_band_index].astype(np.float32) / 10000
-    nir = image[cfg.nir_band_index].astype(np.float32) / 10000
-    swir = image[cfg.swir_band_index].astype(np.float32) / 10000
-    narrow_nir = image[cfg.narrow_nir_band_index].astype(np.float32) / 10000
+def compute_spectral_indices_plugin(image, red_band_idx, nir_band_idx, swir_band_idx, nnir_band_idx):
+    red = image[red_band_idx].astype(np.float32) / 10000
+    nir = image[nir_band_idx].astype(np.float32) / 10000
+    swir = image[swir_band_idx].astype(np.float32) / 10000
+    narrow_nir = image[nnir_band_idx].astype(np.float32) / 10000
 
     ndvi = (nir - red) / (nir + red + 1e-10)
     ndmi = (narrow_nir - swir) / (narrow_nir + swir + 1e-10)
 
     return ndvi, ndmi
-
 
 # ============================================================
 # Main

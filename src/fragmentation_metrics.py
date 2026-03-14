@@ -51,7 +51,7 @@ def compute_all_perimeters_vectorized(labeled: np.ndarray, n_patches: int) -> np
 # ============================================================
 # Plugin Function
 # ============================================================
-def compute_frag_metrics_plugin(forest_mask, edge_core_mask, road_mask, meta, year, out_dir):
+def compute_frag_metrics_plugin(forest_mask, edge_core_mask, road_mask, meta, year, out_dir, scale):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,10 +92,7 @@ def compute_frag_metrics_plugin(forest_mask, edge_core_mask, road_mask, meta, ye
     core_px  = core_counts[idx].astype(np.float64)
     edge_px  = edge_counts[idx].astype(np.float64)
 
-    # Get scale (pixel size in meters) from raster metadata
-    scale = cfg.scale
-
-    area_ha     = area_px * (scale ** 2) / 10_000
+    area_ha = area_px * (scale ** 2) / 10_000
     perimeter_m = perim_px * scale
 
     shape_index = perimeter_m / (2.0 * np.sqrt(np.pi * area_px * scale ** 2))

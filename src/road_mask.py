@@ -148,7 +148,7 @@ def _buffer_and_reproject_roads(lines, metric_crs, raster_crs, buffer_m):
 # ============================================================
 # Plugin Function
 # ============================================================
-def compute_road_mask_plugin(forest_mask, meta):
+def compute_road_mask_plugin(forest_mask, meta, road_buffer_m):
     height     = meta["height"]
     width      = meta["width"]
     transform  = meta["transform"]
@@ -190,7 +190,7 @@ def compute_road_mask_plugin(forest_mask, meta):
 
     # ── Buffer in UTM, reproject to raster CRS, rasterize ────────────
     metric_crs = _utm_epsg_from_bbox(south84, west84, north84, east84)
-    buffered   = _buffer_and_reproject_roads(lines, metric_crs, raster_crs, cfg.road_buffer_m)
+    buffered = _buffer_and_reproject_roads(lines, metric_crs, raster_crs, road_buffer_m)
 
     road_mask = rasterize(
         shapes=((geom, 1) for geom in buffered if geom is not None and not geom.is_empty),

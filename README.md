@@ -85,7 +85,7 @@ This fetches a multi-band Sentinel-2 median composite for each configured year a
 1. Start QGIS
 2. Go to `Plugins` -> `Manage and Install Plugins...` -> `All` -> Search for `EdgeSense` -> Make sure it is enabled (ticked)
 3. Drag and drop your original multi-band .tif file into the QGIS -> Press on the EdgeSense icon: <img src="./logo.png" height=20>.
-4. Follow the steps as indicated to get each output layer.
+4. Set the values of the configurations and click on `Run Pipeline`.
 5. To download any layer, select that layer and click on `Save active layer` option.
 
 ## Normal Pipeline Usage

@@ -14,14 +14,13 @@ from src.utils import visualise_bands, read_tif, save_tif
 # ============================================================
 # Plugin Functions
 # ============================================================
-def compute_forest_mask_plugin(ndvi, ndmi):
-    forest = (ndvi >= cfg.ndvi_threshold) & (ndmi >= cfg.ndmi_threshold)
+def compute_forest_mask_plugin(ndvi, ndmi, ndvi_threshold, ndmi_threshold):
+    forest = (ndvi >= ndvi_threshold) & (ndmi >= ndmi_threshold)
 
     mask = np.zeros_like(ndvi, dtype=np.uint8)
     mask[forest] = 1
 
     return mask
-
 
 # ============================================================
 # Main

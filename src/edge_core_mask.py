@@ -25,8 +25,8 @@ def make_circular_kernel(radius: int) -> np.ndarray:
 # ============================================================
 # Plugin Functions
 # ============================================================
-def compute_edge_core_mask_plugin(forest_mask, road_mask=None):
-    disk = make_circular_kernel(cfg.edge_pixels)
+def compute_edge_core_mask_plugin(forest_mask, road_mask=None, edge_pixels=3):
+    disk = make_circular_kernel(edge_pixels)
 
     # Subtract roads from forest mask
     if road_mask is not None:
@@ -71,7 +71,7 @@ def compute_edge_core_mask(year, mask_path, road_mask_path):
         print(f"  Forest mask not found for {year}, skipping.")
         return
 
-    disk = make_circular_kernel(cfg.edge_pixels)
+    disk = make_circular_kernel(round(cfg.edge_width / cfg.scale))
 
     # Load forest mask
     mask_image, meta = read_tif(mask_path)

@@ -1,9 +1,12 @@
+# ============================================================
+# Imports
+# ============================================================
 import os
 import sys
 import tempfile
 import rasterio
-import numpy as np
 import datetime
+import numpy as np
 from pathlib import Path
 
 from qgis.PyQt.QtGui import QIcon, QCursor
@@ -12,7 +15,7 @@ from qgis.PyQt.QtWidgets import (
     QAction, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QFrame,
     QSizePolicy, QProgressBar, QGraphicsOpacityEffect,
-    QLineEdit, QSpinBox
+    QLineEdit, QSpinBox, QDoubleSpinBox, QGridLayout
 )
 
 from qgis.core import (
@@ -29,10 +32,9 @@ from src.fragmentation_metrics import compute_frag_metrics_plugin
 
 plugin_dir = os.path.dirname(__file__)
 
-# ─────────────────────────────────────────────
-# Minimalistic Stylesheet Constants
-# ─────────────────────────────────────────────
-
+# ============================================================
+# Stylesheet Constants
+# ============================================================
 FONT_FAMILY = "'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif"
 
 PANEL_STYLE = """
@@ -117,31 +119,33 @@ STATUS_DONE   = "Done"
 STATUS_LOCKED = "Locked"
 STATUS_WORKING = "Working…"
 
-# ─────────────────────────────────────────────
-# Background worker for the Overpass fetch
-# ─────────────────────────────────────────────
 
+# ============================================================
+# Helper Classes/Functions
+# ============================================================
+# Background worker for the Overpass fetch
 class RoadMaskWorker(QThread):
     finished = pyqtSignal(object)
     error    = pyqtSignal(str)
 
-    def __init__(self, forest_mask, meta, parent=None):
+    # Add road_buffer_m
+    def __init__(self, forest_mask, meta, road_buffer_m, parent=None):
         super().__init__(parent)
         self.forest_mask = forest_mask
         self.meta        = meta
+        self.road_buffer_m = road_buffer_m
 
     def run(self):
         try:
-            road_mask = compute_road_mask_plugin(self.forest_mask, self.meta)
+            road_mask = compute_road_mask_plugin(self.forest_mask, self.meta, self.road_buffer_m)
             self.finished.emit(road_mask)
         except Exception as exc:
             self.error.emit(str(exc))
 
 
-# ─────────────────────────────────────────────
-# Reusable Step Button
-# ─────────────────────────────────────────────
-
+# ============================================================
+# UI Components
+# ============================================================
 class StepButton(QWidget):
     def __init__(self, step_number, label, parent=None):
         super().__init__(parent)
@@ -200,10 +204,6 @@ class StepButton(QWidget):
         self.button.setEnabled(False)
 
 
-# ─────────────────────────────────────────────
-# Draggable frameless overlay panel
-# ─────────────────────────────────────────────
-
 class OverlayPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -242,10 +242,6 @@ class OverlayPanel(QWidget):
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
 
-
-# ─────────────────────────────────────────────
-# Plugin
-# ─────────────────────────────────────────────
 
 class EdgeSensePlugin:
 
@@ -300,7 +296,7 @@ class EdgeSensePlugin:
         root.setContentsMargins(14, 12, 14, 14)
         root.setSpacing(8)
 
-        # ── Header
+        # Header
         header_row = QHBoxLayout()
         header_row.setSpacing(0)
 
@@ -332,7 +328,7 @@ class EdgeSensePlugin:
         div1.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(div1)
 
-        # ── Configuration Inputs
+        # Configuration Inputs
         cfg_layout = QVBoxLayout()
         cfg_layout.setSpacing(4)
 
@@ -348,6 +344,56 @@ class EdgeSensePlugin:
         year_row.addWidget(self.year_spin)
         year_row.addStretch()
         cfg_layout.addLayout(year_row)
+
+        # ── Configuration Parameters Grid
+        params_grid = QGridLayout()
+        params_grid.setSpacing(6)
+
+        def add_spin_widget(row, col, label_text, widget):
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(f"color: #cccccc; font-size: 11px; font-family: {FONT_FAMILY};")
+            widget.setStyleSheet(INPUT_STYLE)
+            params_grid.addWidget(lbl, row, col*2)
+            params_grid.addWidget(widget, row, col*2 + 1)
+
+        # Row 0: Helper Label for 1-based indexing
+        index_note = QLabel("Note: Band indices are 1-based (e.g., 1, 2, 3...)")
+        index_note.setStyleSheet(f"color: #a0a0a0; font-size: 10px; font-style: italic; font-family: {FONT_FAMILY};")
+        params_grid.addWidget(index_note, 0, 0, 1, 4) # Spans 1 row, 4 columns
+
+        # Row 1: Band Indices (Ranges start at 1 now)
+        self.red_spin = QSpinBox(); self.red_spin.setRange(1, 20); self.red_spin.setValue(2)
+        add_spin_widget(1, 0, "Red Band Idx:", self.red_spin)
+        
+        self.nir_spin = QSpinBox(); self.nir_spin.setRange(1, 20); self.nir_spin.setValue(3)
+        add_spin_widget(1, 1, "NIR Band Idx:", self.nir_spin)
+
+        # Row 2: Band Indices
+        self.nnir_spin = QSpinBox(); self.nnir_spin.setRange(1, 20); self.nnir_spin.setValue(4)
+        add_spin_widget(2, 0, "n-NIR Band Idx:", self.nnir_spin)
+
+        self.swir_spin = QSpinBox(); self.swir_spin.setRange(1, 20); self.swir_spin.setValue(5)
+        add_spin_widget(2, 1, "SWIR Band Idx:", self.swir_spin)
+
+        # Row 3: Thresholds
+        self.ndvi_thresh_spin = QDoubleSpinBox(); self.ndvi_thresh_spin.setRange(-1.0, 1.0); self.ndvi_thresh_spin.setSingleStep(0.05); self.ndvi_thresh_spin.setValue(0.4)
+        add_spin_widget(3, 0, "NDVI Thresh:", self.ndvi_thresh_spin)
+        
+        self.ndmi_thresh_spin = QDoubleSpinBox(); self.ndmi_thresh_spin.setRange(-1.0, 1.0); self.ndmi_thresh_spin.setSingleStep(0.05); self.ndmi_thresh_spin.setValue(0.1)
+        add_spin_widget(3, 1, "NDMI Thresh:", self.ndmi_thresh_spin)
+
+        # Row 4: Environment Settings
+        self.road_buffer_spin = QDoubleSpinBox(); self.road_buffer_spin.setRange(0.0, 500.0); self.road_buffer_spin.setValue(10.0)
+        add_spin_widget(4, 0, "Road Buf (m):", self.road_buffer_spin)
+        
+        self.edge_width_spin = QSpinBox(); self.edge_width_spin.setRange(10, 500); self.edge_width_spin.setValue(100)
+        add_spin_widget(4, 1, "Edge Width (m):", self.edge_width_spin)
+
+        # Row 5: Resolution / Scale
+        self.scale_spin = QDoubleSpinBox(); self.scale_spin.setRange(0.1, 1000.0); self.scale_spin.setValue(10.0)
+        add_spin_widget(5, 0, "Pixel Scale (m):", self.scale_spin)
+
+        cfg_layout.addLayout(params_grid)
 
         # Output Directory Input
         dir_lbl = QLabel("Output Directory:")
@@ -375,14 +421,14 @@ class EdgeSensePlugin:
         div2.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(div2)
 
-        # ── Step buttons
+        # Step buttons
         self.step_run = StepButton(1, "Run Pipeline")
         self.step_save = StepButton(2, "Save Active Layer")
 
         root.addWidget(self.step_run)
         root.addWidget(self.step_save)
 
-        # ── Progress bar
+        # Progress bar
         self.progress = QProgressBar()
         self.progress.setRange(0, 6)   # Now 6 steps (Load, Indices, Forest, Road, Edge/Core, Metrics)
         self.progress.setValue(0)
@@ -394,13 +440,13 @@ class EdgeSensePlugin:
         """)
         root.addWidget(self.progress)
 
-        # ── Footer
+        # Footer
         self.footer = QLabel("Waiting for output directory...")
         self.footer.setStyleSheet(f"color: #777777; font-size: 10px; font-family: {FONT_FAMILY}; padding-top: 4px;")
         self.footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self.footer)
 
-        # ── Connect
+        # Connect
         self.step_run.button.clicked.connect(self.run_full_pipeline)
         self.step_save.button.clicked.connect(self.save_output)
 
@@ -412,7 +458,7 @@ class EdgeSensePlugin:
         self.window.move(x, y)
         self.window.show_animated()
 
-    # ── Helpers ───────────────────────────────────────────────────────
+    # Helpers ───────────────────────────────────────────────────────
 
     def select_out_dir(self):
         folder = QFileDialog.getExistingDirectory(self.iface.mainWindow(), "Select Output Directory")
@@ -432,7 +478,7 @@ class EdgeSensePlugin:
     def _update_footer(self, text):
         self.footer.setText(text)
 
-    # ── Full Pipeline Logic ───────────────────────────────────────────
+    # Full Pipeline Logic ───────────────────────────────────────────
 
     def run_full_pipeline(self):
         layer = self.iface.activeLayer()
@@ -451,26 +497,35 @@ class EdgeSensePlugin:
         self.step_save.set_locked()
         self.progress.setValue(0)
 
-        # ── Step 1: Load Raster
+        # Step 1: Load Raster
         path = layer.source()
         self.original_basename = Path(path).stem 
         self.image, self.meta = read_tif(path)
         self.progress.setValue(1)
 
-        # ── Step 2: Compute Indices
-        self.ndvi, self.ndmi = compute_spectral_indices_plugin(self.image)
+        # Step 2: Compute Indices (Function expects 0 based indexes, UI is 1-based for user-friendliness)
+        red_idx = self.red_spin.value() - 1
+        nir_idx = self.nir_spin.value() - 1
+        swir_idx = self.swir_spin.value() - 1
+        nnir_idx = self.nnir_spin.value() - 1
+        
+        self.ndvi, self.ndmi = compute_spectral_indices_plugin(self.image, red_idx, nir_idx, swir_idx, nnir_idx)
         self.display_raster(self.ndvi[np.newaxis, ...], "NDVI")
         self.display_raster(self.ndmi[np.newaxis, ...], "NDMI")
         self.progress.setValue(2)
 
-        # ── Step 3: Compute Forest Mask
-        self.forest_mask = compute_forest_mask_plugin(self.ndvi, self.ndmi)
+        # Step 3: Compute Forest Mask
+        ndvi_th = self.ndvi_thresh_spin.value()
+        ndmi_th = self.ndmi_thresh_spin.value()
+        
+        self.forest_mask = compute_forest_mask_plugin(self.ndvi, self.ndmi, ndvi_th, ndmi_th)
         self.display_raster(self.forest_mask[np.newaxis, ...], "Forest Mask")
         self.progress.setValue(3)
         self._update_footer("Fetching OSM roads…")
 
-        # ── Step 4: Road Mask (Async Call)
-        self._road_worker = RoadMaskWorker(self.forest_mask, self.meta)
+        # Step 4: Road Mask (Async Call)
+        road_buf = self.road_buffer_spin.value()
+        self._road_worker = RoadMaskWorker(self.forest_mask, self.meta, road_buf)
         self._road_worker.finished.connect(self._on_pipeline_road_done)
         self._road_worker.error.connect(self._on_pipeline_road_error)
         self._road_worker.start()
@@ -487,7 +542,7 @@ class EdgeSensePlugin:
         self._finish_pipeline_edge_core()
 
     def _finish_pipeline_edge_core(self):
-        # ── Step 5: Compute Edge/Core
+        # Step 5: Compute Edge/Core
         self._update_footer("Computing Edge/Core...")
         working_mask = self.forest_mask.copy()
         
@@ -504,14 +559,16 @@ class EdgeSensePlugin:
             road_pixels = (self.road_mask == 1) & (working_mask == 1)
             working_mask[road_pixels] = 0
 
-        self.edge_core = compute_edge_core_mask_plugin(working_mask)
+        edge_px = self.edge_width_spin.value() / self.scale_spin.value()  # Convert edge width from meters to pixels
+        self.edge_core = compute_edge_core_mask_plugin(working_mask, road_mask=self.road_mask, edge_pixels=edge_px)
         self.display_raster(self.edge_core, "Edge Core", nodata=255)
         self.progress.setValue(5)
 
-        # ── Step 6: Compute Metrics & Save CSV
+        # Step 6: Compute Metrics & Save CSV
         self._update_footer("Calculating fragmentation metrics...")
         year_val = self.year_spin.value()
         out_dir = self.dir_input.text()
+        scale_val = self.scale_spin.value()
 
         summary = compute_frag_metrics_plugin(
             self.forest_mask, 
@@ -519,7 +576,8 @@ class EdgeSensePlugin:
             self.road_mask, 
             self.meta, 
             year_val, 
-            out_dir
+            out_dir,
+            scale_val
         )
 
         self.progress.setValue(6)
@@ -539,7 +597,7 @@ class EdgeSensePlugin:
                 "Analysis completed, but no patches >= 0.5ha were found.",
                 level=Qgis.MessageLevel.Info)
 
-    # ── Display raster ────────────────────────────────────────────────
+    # Display raster ────────────────────────────────────────────────
 
     def display_raster(self, array, name, nodata=None):
         from qgis.core import QgsMultiBandColorRenderer
@@ -562,7 +620,7 @@ class EdgeSensePlugin:
 
         QgsProject.instance().addMapLayer(layer)
 
-    # ── Save Raster ───────────────────────────────────────────────────
+    # Save Raster ───────────────────────────────────────────────────
 
     def save_output(self):
         layer = self.iface.activeLayer()
