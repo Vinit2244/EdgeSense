@@ -4,6 +4,7 @@
 import sys
 import numpy as np
 import pandas as pd
+import config as cfg
 from pathlib import Path
 from scipy.ndimage import label
 
@@ -45,6 +46,133 @@ def compute_all_perimeters_vectorized(labeled: np.ndarray, n_patches: int) -> np
     boundary_labels  = labeled[is_boundary]
     perimeter_counts = np.bincount(boundary_labels, minlength=n_patches + 1)
     return perimeter_counts
+
+
+# ============================================================
+# Plugin Function
+# ============================================================
+def compute_frag_metrics_plugin(forest_mask, edge_core_mask, road_mask, meta, year, out_dir):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Assuming edge_core_mask shape is (2, H, W) based on your provided script
+    edge_mask_channel = edge_core_mask[0]   # Channel 0: Edge pixels (value 254 = edge)
+    core_mask_channel = edge_core_mask[1]   # Channel 1: Core pixels (value 254 = core)
+
+    # Handle nodata
+    nodata_val    = meta.get('nodata', 255)
+    forest_binary = (forest_mask == 1) & (forest_mask != nodata_val)
+
+    # Subtract road pixels
+    if road_mask is not None:
+        road_pixels   = (road_mask == 1)
+        forest_binary = forest_binary & ~road_pixels
+
+    # Label connected forest patches
+    labeled, n_patches = label(forest_binary)
+
+    if n_patches == 0:
+        return None
+
+    all_areas_px = np.bincount(labeled.ravel(), minlength=n_patches + 1)
+
+    core_counts  = np.bincount(
+        labeled[core_mask_channel == 254].ravel(), minlength=n_patches + 1
+    )
+    edge_counts  = np.bincount(
+        labeled[edge_mask_channel == 254].ravel(), minlength=n_patches + 1
+    )
+
+    perimeter_counts = compute_all_perimeters_vectorized(labeled, n_patches)
+
+    # Slice to patch indices 1..n_patches
+    idx      = np.arange(1, n_patches + 1)
+    area_px  = all_areas_px[idx].astype(np.float64)
+    perim_px = perimeter_counts[idx].astype(np.float64)
+    core_px  = core_counts[idx].astype(np.float64)
+    edge_px  = edge_counts[idx].astype(np.float64)
+
+    # Get scale (pixel size in meters) from raster metadata
+    scale = cfg.scale
+
+    area_ha     = area_px * (scale ** 2) / 10_000
+    perimeter_m = perim_px * scale
+
+    shape_index = perimeter_m / (2.0 * np.sqrt(np.pi * area_px * scale ** 2))
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        log_shape_index = np.where(shape_index > 0, np.log(shape_index), np.nan)
+
+    core_area_ha  = core_px * (scale ** 2) / 10_000
+    edge_area_ha  = edge_px * (scale ** 2) / 10_000
+
+    core_area_fraction = np.where(area_px > 0, core_px / area_px, np.nan)
+
+    edge_core_ratio = np.divide(
+        edge_px,
+        core_px,
+        out=np.full_like(edge_px, np.nan, dtype=float),
+        where=core_px > 0
+    )
+
+    patch_cohesion = np.where(
+        area_px > 0,
+        1.0 - (perim_px / (area_px * scale)),
+        np.nan,
+    )
+
+    stress_pressure_index = np.where(
+        ~np.isnan(edge_core_ratio),
+        edge_core_ratio * shape_index,
+        np.nan,
+    )
+
+    valid = area_ha >= 0.5
+
+    df_year = pd.DataFrame({
+        "year":                  year,
+        "patch_id":              idx[valid],
+        "area_ha":               np.round(area_ha[valid],               3),
+        "perimeter_m":           np.round(perimeter_m[valid],           1),
+        "shape_index":           np.round(shape_index[valid],           4),
+        "log_shape_index":       np.round(log_shape_index[valid],       4),
+        "core_area_ha":          np.round(core_area_ha[valid],          3),
+        "edge_area_ha":          np.round(edge_area_ha[valid],          3),
+        "core_area_fraction":    np.round(core_area_fraction[valid],    4),
+        "edge_core_ratio":       np.round(edge_core_ratio[valid],       4),
+        "patch_cohesion":        np.round(patch_cohesion[valid],        4),
+        "stress_pressure_index": np.round(stress_pressure_index[valid], 4),
+    })
+
+    csv_out = out_dir / f"FragMetrics_{year}.csv"
+    df_year.to_csv(csv_out, index=False)
+
+    if len(df_year) == 0:
+        return None
+
+    # Landscape-level summary
+    total_edge_area = df_year["edge_area_ha"].sum()
+    total_core_area = df_year["core_area_ha"].sum()
+    total_ec_ratio  = round(total_edge_area / total_core_area, 4) if total_core_area > 0 else np.nan
+
+    summary = {
+        "year":                       year,
+        "n_patches":                  len(df_year),
+        "total_forest_ha":            round(df_year["area_ha"].sum(),                2),
+        "mean_patch_ha":              round(df_year["area_ha"].mean(),               3),
+        "largest_patch_ha":           round(df_year["area_ha"].max(),                3),
+        "mean_shape_index":           round(df_year["shape_index"].mean(),           4),
+        "mean_core_area_fraction":    round(df_year["core_area_fraction"].mean(),    4),
+        "total_edge_core_ratio":      total_ec_ratio,
+        "mean_patch_cohesion":        round(df_year["patch_cohesion"].mean(),        4),
+        "mean_stress_pressure_index": round(df_year["stress_pressure_index"].mean(), 4),
+    }
+
+    # Save summary CSV
+    summary_out = out_dir / f"FragSummary_{year}.csv"
+    pd.DataFrame([summary]).to_csv(summary_out, index=False)
+
+    return summary
 
 
 # ============================================================
@@ -213,10 +341,6 @@ if __name__ == "__main__":
 
         if summary is not None:
             all_years_summary.append(summary)
-            pd.DataFrame([summary]).to_csv(
-                cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_{year}.csv",
-                index=False,
-            )
 
     if all_years_summary:
         pd.DataFrame(all_years_summary).to_csv(

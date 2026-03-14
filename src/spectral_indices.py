@@ -13,20 +13,6 @@ from src.utils import read_tif, save_tif, visualise_bands
 # ============================================================
 # Helper Functions
 # ============================================================
-def inspect_tif(tif_path):
-    image, meta = read_tif(tif_path)
-    print(f"  File     : {tif_path.name}")
-    print(f"  CRS      : {meta['crs']}")
-    print(f"  Bands    : {meta['count']}")
-    print(f"  Shape    : {meta['height']} x {meta['width']} pixels")
-    print(f"  Res      : {meta['transform'].a:.1f}m x {abs(meta['transform'].e):.1f}m")
-    for i, band in enumerate(image, start=1):
-        band_f = band.astype(np.float32)
-        valid = band_f[band_f > 0]
-        if len(valid) > 0:
-            print(f"  Band {i:<4}: min={valid.min():.0f}  mean={valid.mean():.0f}  max={valid.max():.0f}")
-
-
 def compute_ndvi(image, red_idx, nir_idx, nodata_val):
     red = image[red_idx].astype(np.float32) / 10000.0
     nir = image[nir_idx].astype(np.float32) / 10000.0

@@ -3,6 +3,7 @@ import sys
 import tempfile
 import rasterio
 import numpy as np
+import datetime
 from pathlib import Path
 
 from qgis.PyQt.QtGui import QIcon, QCursor
@@ -10,17 +11,21 @@ from qgis.PyQt.QtCore import Qt, QPropertyAnimation, QEasingCurve, QThread, pyqt
 from qgis.PyQt.QtWidgets import (
     QAction, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QFrame,
-    QSizePolicy, QProgressBar, QGraphicsOpacityEffect
+    QSizePolicy, QProgressBar, QGraphicsOpacityEffect,
+    QLineEdit, QSpinBox
 )
 
-from qgis.core import QgsRasterLayer, QgsProject, Qgis, QgsRasterFileWriter, QgsRasterPipe
+from qgis.core import (
+    QgsRasterLayer, QgsProject, Qgis, QgsRasterFileWriter, QgsRasterPipe, QgsMapLayerType
+)
 
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from src.utils import read_tif
-from src.spectral_indices import compute_spectral_indices_plugin
-from src.forest_mask import compute_forest_mask_plugin
 from src.road_mask import compute_road_mask_plugin
+from src.forest_mask import compute_forest_mask_plugin
 from src.edge_core_mask import compute_edge_core_mask_plugin
+from src.spectral_indices import compute_spectral_indices_plugin
+from src.fragmentation_metrics import compute_frag_metrics_plugin
 
 plugin_dir = os.path.dirname(__file__)
 
@@ -66,6 +71,18 @@ STATUS_LABEL_STYLE = f"""
     padding: 2px 6px;
 """
 
+INPUT_STYLE = f"""
+    QLineEdit, QSpinBox {{
+        background-color: #2b2b2b;
+        color: #dcdcdc;
+        border: 1px solid #404040;
+        border-radius: 4px;
+        padding: 4px 6px;
+        font-size: 11px;
+        font-family: {FONT_FAMILY};
+    }}
+"""
+
 BTN_STYLE = f"""
     QPushButton {{
         background-color: #2b2b2b;
@@ -93,17 +110,7 @@ BTN_STYLE = f"""
     }}
 """
 
-TOOLTIP_STYLE = f"""
-QToolTip {{
-    background-color: #1e1e1e;
-    color: #cccccc;
-    border: 1px solid #404040;
-    border-radius: 2px;
-    padding: 6px;
-    font-size: 11px;
-    font-family: {FONT_FAMILY};
-}}
-"""
+SMALL_BTN_STYLE = BTN_STYLE.replace("padding: 6px 12px;", "padding: 4px 8px; font-size: 11px; text-align: center;")
 
 STATUS_READY  = "Ready"
 STATUS_DONE   = "Done"
@@ -115,11 +122,7 @@ STATUS_WORKING = "Working…"
 # ─────────────────────────────────────────────
 
 class RoadMaskWorker(QThread):
-    """
-    Fetches the OSM road network and rasterizes it on a background thread
-    so the QGIS UI stays responsive during the (potentially slow) HTTP call.
-    """
-    finished = pyqtSignal(object)   # road_mask array
+    finished = pyqtSignal(object)
     error    = pyqtSignal(str)
 
     def __init__(self, forest_mask, meta, parent=None):
@@ -140,9 +143,7 @@ class RoadMaskWorker(QThread):
 # ─────────────────────────────────────────────
 
 class StepButton(QWidget):
-    """A minimal pipeline step with label, styled button, status badge and rich tooltip."""
-
-    def __init__(self, step_number, label, tooltip_html, parent=None):
+    def __init__(self, step_number, label, parent=None):
         super().__init__(parent)
 
         outer = QVBoxLayout(self)
@@ -168,8 +169,6 @@ class StepButton(QWidget):
         self.button.setStyleSheet(BTN_STYLE)
         self.button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.button.setFixedHeight(32)
-        self.button.setToolTip(tooltip_html)
-        self.button.setToolTipDuration(8000)
 
         row.addWidget(chip)
         row.addWidget(self.button)
@@ -206,8 +205,6 @@ class StepButton(QWidget):
 # ─────────────────────────────────────────────
 
 class OverlayPanel(QWidget):
-    """Frameless panel that floats over the QGIS main window and is draggable."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -220,7 +217,6 @@ class OverlayPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._drag_pos = None
-
         self._opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self._opacity_effect)
         self._fade = QPropertyAnimation(self._opacity_effect, b"opacity")
@@ -255,7 +251,7 @@ class EdgeSensePlugin:
 
     def __init__(self, iface):
         self.iface = iface
-        self._road_worker = None   # keep a reference so GC doesn't kill the thread
+        self._road_worker = None
 
         self.image       = None
         self.meta        = None
@@ -290,8 +286,7 @@ class EdgeSensePlugin:
 
         self.window = OverlayPanel(main_win)
         self.window.setObjectName("EdgeSenseWrapper")
-        self.window.setMinimumWidth(300)
-        self.window.setStyleSheet(TOOLTIP_STYLE)
+        self.window.setMinimumWidth(320)
 
         card = QWidget(self.window)
         card.setObjectName("EdgeSensePanel")
@@ -303,21 +298,18 @@ class EdgeSensePlugin:
 
         root = QVBoxLayout(card)
         root.setContentsMargins(14, 12, 14, 14)
-        root.setSpacing(6)
+        root.setSpacing(8)
 
-        # ── Header ────────────────────────────────────────────────────
+        # ── Header
         header_row = QHBoxLayout()
         header_row.setSpacing(0)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
-
         title = QLabel("EdgeSense")
         title.setStyleSheet(TITLE_STYLE + "cursor: grab;")
-
         sub = QLabel("Forest Edge Core Analysis")
         sub.setStyleSheet(SUBTITLE_STYLE)
-
         title_col.addWidget(title)
         title_col.addWidget(sub)
 
@@ -325,16 +317,8 @@ class EdgeSensePlugin:
         btn_close.setFixedSize(20, 20)
         btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_close.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: #888888;
-                border: none;
-                font-size: 12px;
-                font-family: {FONT_FAMILY};
-            }}
-            QPushButton:hover {{
-                color: #ffffff;
-            }}
+            QPushButton {{ background: transparent; color: #888888; border: none; font-size: 12px; font-family: {FONT_FAMILY}; }}
+            QPushButton:hover {{ color: #ffffff; }}
         """)
         btn_close.clicked.connect(self.window.close)
 
@@ -343,114 +327,116 @@ class EdgeSensePlugin:
         header_row.addWidget(btn_close)
         root.addLayout(header_row)
 
-        div = QFrame()
-        div.setStyleSheet(DIVIDER_STYLE)
-        div.setFrameShape(QFrame.Shape.HLine)
-        root.addWidget(div)
-        root.addSpacing(4)
+        div1 = QFrame()
+        div1.setStyleSheet(DIVIDER_STYLE)
+        div1.setFrameShape(QFrame.Shape.HLine)
+        root.addWidget(div1)
 
-        # ── Step buttons ──────────────────────────────────────────────
-        self.step_load = StepButton(
-            1, "Load Active Raster",
-            "Reads the raster currently selected in the QGIS Layers panel."
-        )
-        self.step_ndvi = StepButton(
-            2, "Compute NDVI + NDMI",
-            "Calculates NDVI and NDMI from the loaded image."
-        )
-        self.step_mask = StepButton(
-            3, "Compute Forest Mask",
-            "Derives a binary forest / non-forest mask using NDVI and NDMI thresholds."
-        )
-        self.step_road = StepButton(
-            4, "Fetch Road Mask (OSM)",
-            "Downloads the road network from OpenStreetMap via Overpass API and "
-            "rasterizes it onto the same grid as the forest mask.<br><br>"
-            "<b>Note:</b> requires an internet connection. Road pixels are "
-            "reclassified as non-forest before edge/core analysis so that roads "
-            "do not generate spurious forest edges."
-        )
-        self.step_edge = StepButton(
-            5, "Compute Edge / Core",
-            "Labels each forest pixel as Edge or Core based on proximity to "
-            "non-forest pixels (roads are already excluded)."
-        )
-        self.step_save = StepButton(
-            6, "Save Active Layer",
-            "Exports the currently selected raster layer in the QGIS Layers panel as a GeoTIFF."
-        )
+        # ── Configuration Inputs
+        cfg_layout = QVBoxLayout()
+        cfg_layout.setSpacing(4)
 
-        for step in [self.step_load, self.step_ndvi, self.step_mask,
-                     self.step_road, self.step_edge, self.step_save]:
-            root.addWidget(step)
+        # Year Input
+        year_row = QHBoxLayout()
+        lbl_year = QLabel("Analysis Year:")
+        lbl_year.setStyleSheet(f"color: #cccccc; font-size: 11px; font-family: {FONT_FAMILY};")
+        self.year_spin = QSpinBox()
+        self.year_spin.setRange(1980, 2100)
+        self.year_spin.setValue(datetime.datetime.now().year)
+        self.year_spin.setStyleSheet(INPUT_STYLE)
+        year_row.addWidget(lbl_year)
+        year_row.addWidget(self.year_spin)
+        year_row.addStretch()
+        cfg_layout.addLayout(year_row)
 
-        # ── Progress bar ──────────────────────────────────────────────
-        root.addSpacing(6)
+        # Output Directory Input
+        dir_lbl = QLabel("Output Directory:")
+        dir_lbl.setStyleSheet(f"color: #cccccc; font-size: 11px; font-family: {FONT_FAMILY};")
+        cfg_layout.addWidget(dir_lbl)
+
+        dir_row = QHBoxLayout()
+        self.dir_input = QLineEdit()
+        self.dir_input.setPlaceholderText("Select output folder...")
+        self.dir_input.setReadOnly(True)
+        self.dir_input.setStyleSheet(INPUT_STYLE)
+        
+        btn_browse = QPushButton("Browse")
+        btn_browse.setStyleSheet(SMALL_BTN_STYLE)
+        btn_browse.clicked.connect(self.select_out_dir)
+
+        dir_row.addWidget(self.dir_input)
+        dir_row.addWidget(btn_browse)
+        cfg_layout.addLayout(dir_row)
+
+        root.addLayout(cfg_layout)
+
+        div2 = QFrame()
+        div2.setStyleSheet(DIVIDER_STYLE)
+        div2.setFrameShape(QFrame.Shape.HLine)
+        root.addWidget(div2)
+
+        # ── Step buttons
+        self.step_run = StepButton(1, "Run Pipeline")
+        self.step_save = StepButton(2, "Save Active Layer")
+
+        root.addWidget(self.step_run)
+        root.addWidget(self.step_save)
+
+        # ── Progress bar
         self.progress = QProgressBar()
-        self.progress.setRange(0, 5)   # 5 processing steps
+        self.progress.setRange(0, 6)   # Now 6 steps (Load, Indices, Forest, Road, Edge/Core, Metrics)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
         self.progress.setFixedHeight(4)
         self.progress.setStyleSheet("""
-            QProgressBar {
-                background-color: #1a1a1a;
-                border: 1px solid #333333;
-                border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background-color: #777777;
-                border-radius: 1px;
-            }
+            QProgressBar { background-color: #1a1a1a; border: 1px solid #333333; border-radius: 2px; }
+            QProgressBar::chunk { background-color: #777777; border-radius: 1px; }
         """)
         root.addWidget(self.progress)
 
-        # ── Footer ────────────────────────────────────────────────────
-        self.footer = QLabel("No raster loaded")
-        self.footer.setStyleSheet(f"""
-            color: #777777;
-            font-size: 10px;
-            font-family: {FONT_FAMILY};
-            padding-top: 4px;
-        """)
+        # ── Footer
+        self.footer = QLabel("Waiting for output directory...")
+        self.footer.setStyleSheet(f"color: #777777; font-size: 10px; font-family: {FONT_FAMILY}; padding-top: 4px;")
         self.footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self.footer)
 
-        # ── Connect ───────────────────────────────────────────────────
-        self.step_load.button.clicked.connect(self.load_raster)
-        self.step_ndvi.button.clicked.connect(self.run_indices)
-        self.step_mask.button.clicked.connect(self.run_forest_mask)
-        self.step_road.button.clicked.connect(self.run_road_mask)
-        self.step_edge.button.clicked.connect(self.run_edge_core)
+        # ── Connect
+        self.step_run.button.clicked.connect(self.run_full_pipeline)
         self.step_save.button.clicked.connect(self.save_output)
 
-        self._reset_pipeline_ui()
+        self.check_ready_state()
 
-        main_geo     = main_win.geometry()
-        panel_width  = 300
-        x = main_geo.right() - panel_width - 20
+        main_geo = main_win.geometry()
+        x = main_geo.right() - 320 - 20
         y = main_geo.top() + 60
         self.window.move(x, y)
-
         self.window.show_animated()
 
-    # ── Pipeline state helpers ─────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────
 
-    def _reset_pipeline_ui(self):
-        self.step_load.set_ready()
-        for step in [self.step_ndvi, self.step_mask, self.step_road,
-                     self.step_edge, self.step_save]:
-            step.set_locked()
-        self.progress.setValue(0)
+    def select_out_dir(self):
+        folder = QFileDialog.getExistingDirectory(self.iface.mainWindow(), "Select Output Directory")
+        if folder:
+            self.dir_input.setText(folder)
+            self.check_ready_state()
+
+    def check_ready_state(self):
+        if self.dir_input.text() and Path(self.dir_input.text()).exists():
+            self.step_run.set_ready()
+            self._update_footer("Ready to run pipeline")
+        else:
+            self.step_run.set_locked()
+            self.step_save.set_locked()
+            self._update_footer("Waiting for output directory...")
 
     def _update_footer(self, text):
         self.footer.setText(text)
 
-    # ── Step 1 – Load ─────────────────────────────────────────────────
+    # ── Full Pipeline Logic ───────────────────────────────────────────
 
-    def load_raster(self):
+    def run_full_pipeline(self):
         layer = self.iface.activeLayer()
 
-        from qgis.core import QgsMapLayerType
         if not layer or layer.type() != QgsMapLayerType.RasterLayer:
             self.iface.messageBar().pushMessage(
                 "EdgeSense",
@@ -458,123 +444,53 @@ class EdgeSensePlugin:
                 level=Qgis.MessageLevel.Warning)
             return
 
-        path = layer.source()
-
-        # Wipe previous run from memory
         self.image = self.meta = self.ndvi = self.ndmi = None
         self.forest_mask = self.road_mask = self.edge_core = None
-        self.current_layer_array = self.current_nodata = None
-        self._reset_pipeline_ui()
+        
+        self.step_run.set_working()
+        self.step_save.set_locked()
+        self.progress.setValue(0)
 
+        # ── Step 1: Load Raster
+        path = layer.source()
+        self.original_basename = Path(path).stem 
         self.image, self.meta = read_tif(path)
-
-        self.step_load.set_done()
-        self.step_ndvi.set_ready()
         self.progress.setValue(1)
-        self._update_footer(f"Loaded: {os.path.basename(path)}")
-        self.iface.messageBar().pushMessage("EdgeSense", "Raster loaded successfully.")
 
-    # ── Step 2 – Indices ──────────────────────────────────────────────
-
-    def run_indices(self):
-        if self.image is None:
-            self.iface.messageBar().pushMessage(
-                "EdgeSense", "Load a raster first (Step 1).",
-                level=Qgis.MessageLevel.Warning)
-            return
-
+        # ── Step 2: Compute Indices
         self.ndvi, self.ndmi = compute_spectral_indices_plugin(self.image)
-
         self.display_raster(self.ndvi[np.newaxis, ...], "NDVI")
         self.display_raster(self.ndmi[np.newaxis, ...], "NDMI")
-        self.current_layer_array = self.ndvi[np.newaxis, ...]
-
-        self.step_ndvi.set_done()
-        self.step_mask.set_ready()
         self.progress.setValue(2)
-        self._update_footer("NDVI & NDMI computed")
 
-    # ── Step 3 – Forest Mask ──────────────────────────────────────────
-
-    def run_forest_mask(self):
-        if self.ndvi is None:
-            self.iface.messageBar().pushMessage(
-                "EdgeSense", "Compute NDVI first (Step 2).",
-                level=Qgis.MessageLevel.Warning)
-            return
-
+        # ── Step 3: Compute Forest Mask
         self.forest_mask = compute_forest_mask_plugin(self.ndvi, self.ndmi)
         self.display_raster(self.forest_mask[np.newaxis, ...], "Forest Mask")
-        self.current_layer_array = self.forest_mask[np.newaxis, ...]
-
-        self.step_mask.set_done()
-        self.step_road.set_ready()   # road mask is next; edge is still locked
-        self.step_save.set_ready()
         self.progress.setValue(3)
-        self._update_footer("Forest mask computed")
+        self._update_footer("Fetching OSM roads…")
 
-    # ── Step 4 – Road Mask ────────────────────────────────────────────
-
-    def run_road_mask(self):
-        if self.forest_mask is None:
-            self.iface.messageBar().pushMessage(
-                "EdgeSense", "Compute forest mask first (Step 3).",
-                level=Qgis.MessageLevel.Warning)
-            return
-
-        # Lock the button and show a working indicator while the thread runs
-        self.step_road.set_working()
-        self.step_edge.set_locked()
-        self._update_footer("Querying OpenStreetMap…")
-
-        self._road_worker = RoadMaskWorker(
-            forest_mask = self.forest_mask,
-            meta        = self.meta,
-        )
-        self._road_worker.finished.connect(self._on_road_mask_done)
-        self._road_worker.error.connect(self._on_road_mask_error)
+        # ── Step 4: Road Mask (Async Call)
+        self._road_worker = RoadMaskWorker(self.forest_mask, self.meta)
+        self._road_worker.finished.connect(self._on_pipeline_road_done)
+        self._road_worker.error.connect(self._on_pipeline_road_error)
         self._road_worker.start()
 
-    def _on_road_mask_done(self, road_mask):
+    def _on_pipeline_road_done(self, road_mask):
         self.road_mask = road_mask
         self.display_raster(self.road_mask[np.newaxis, ...], "Road Mask", nodata=255)
-        self.current_layer_array = self.road_mask[np.newaxis, ...]
-
-        n_road_px = int(np.sum(road_mask == 1))
-
-        self.step_road.set_done()
-        self.step_edge.set_ready()
-        self.step_save.set_ready()
         self.progress.setValue(4)
-        self._update_footer(f"Road mask: {n_road_px:,} road pixels")
-        self.iface.messageBar().pushMessage(
-            "EdgeSense",
-            f"Road mask computed — {n_road_px:,} road pixels rasterized from OSM.")
+        self._finish_pipeline_edge_core()
 
-    def _on_road_mask_error(self, msg):
-        # Overpass failed — warn the user but allow the pipeline to continue
-        # without road subtraction (edge/core will use the plain forest mask).
+    def _on_pipeline_road_error(self, msg):
         self.road_mask = None
-        self.iface.messageBar().pushMessage(
-            "EdgeSense",
-            f"Road mask fetch failed: {msg}  — continuing without road subtraction.",
-            level=Qgis.MessageLevel.Warning)
-        self.step_road.set_status("Failed", "#cc4444")
-        self.step_road.button.setEnabled(True)   # allow retry
-        self.step_edge.set_ready()
-        self._update_footer("Road mask unavailable — OSM fetch failed")
+        self.progress.setValue(4)
+        self._finish_pipeline_edge_core()
 
-    # ── Step 5 – Edge / Core ──────────────────────────────────────────
-
-    def run_edge_core(self):
-        if self.forest_mask is None:
-            self.iface.messageBar().pushMessage(
-                "EdgeSense", "Compute forest mask first (Step 3).",
-                level=Qgis.MessageLevel.Warning)
-            return
-
-        # Apply nodata from the source image
+    def _finish_pipeline_edge_core(self):
+        # ── Step 5: Compute Edge/Core
+        self._update_footer("Computing Edge/Core...")
         working_mask = self.forest_mask.copy()
+        
         if self.image is not None and self.meta is not None:
             nodata_val = self.meta.get("nodata")
             if nodata_val is not None:
@@ -584,101 +500,129 @@ class EdgeSensePlugin:
                 )
                 working_mask[nodata_pixels] = 255
 
-        # Subtract road pixels from forest before edge/core computation
         if self.road_mask is not None:
-            n_before     = int(np.sum(working_mask == 1))
-            road_pixels  = (self.road_mask == 1) & (working_mask == 1)
+            road_pixels = (self.road_mask == 1) & (working_mask == 1)
             working_mask[road_pixels] = 0
-            n_roads      = n_before - int(np.sum(working_mask == 1))
-            road_note    = f"{n_roads:,} forest px reclassified as road"
-        else:
-            road_note = "no road mask applied"
 
         self.edge_core = compute_edge_core_mask_plugin(working_mask)
         self.display_raster(self.edge_core, "Edge Core", nodata=255)
-        self.current_layer_array = self.edge_core
-
-        self.step_edge.set_done()
-        self.step_save.set_ready()
         self.progress.setValue(5)
-        self._update_footer(f"Edge/Core computed ({road_note})")
+
+        # ── Step 6: Compute Metrics & Save CSV
+        self._update_footer("Calculating fragmentation metrics...")
+        year_val = self.year_spin.value()
+        out_dir = self.dir_input.text()
+
+        summary = compute_frag_metrics_plugin(
+            self.forest_mask, 
+            self.edge_core, 
+            self.road_mask, 
+            self.meta, 
+            year_val, 
+            out_dir
+        )
+
+        self.progress.setValue(6)
+        self.step_run.set_done()
+        self.step_save.set_ready()
+        
+        if summary:
+            self._update_footer(f"Metrics saved to {Path(out_dir).name}")
+            self.iface.messageBar().pushMessage(
+                "EdgeSense",
+                f"Analysis completed! Found {summary['n_patches']} valid patches. CSVs saved.",
+                level=Qgis.MessageLevel.Success)
+        else:
+            self._update_footer("Pipeline Finished (No valid patches)")
+            self.iface.messageBar().pushMessage(
+                "EdgeSense",
+                "Analysis completed, but no patches >= 0.5ha were found.",
+                level=Qgis.MessageLevel.Info)
 
     # ── Display raster ────────────────────────────────────────────────
 
     def display_raster(self, array, name, nodata=None):
         from qgis.core import QgsMultiBandColorRenderer
-
         temp = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
         meta = self.meta.copy()
-        meta.update({
-            "count": array.shape[0],
-            "dtype": str(array.dtype)
-        })
+        meta.update({"count": array.shape[0], "dtype": str(array.dtype)})
         if nodata is not None:
             meta["nodata"] = nodata
 
         self.current_nodata = nodata
+        self.current_layer_array = array
 
         with rasterio.open(temp.name, "w", **meta) as dst:
             dst.write(array)
 
         layer = QgsRasterLayer(temp.name, name)
-
         if array.shape[0] == 3:
             renderer = QgsMultiBandColorRenderer(layer.dataProvider(), 1, 2, 3)
             layer.setRenderer(renderer)
 
         QgsProject.instance().addMapLayer(layer)
 
-    # ── Step 6 – Save ─────────────────────────────────────────────────
+    # ── Save Raster ───────────────────────────────────────────────────
 
     def save_output(self):
         layer = self.iface.activeLayer()
-
-        if not layer or layer.type() != Qgis.LayerType.Raster:
+        
+        if not layer or layer.type() != QgsMapLayerType.RasterLayer:
             self.iface.messageBar().pushMessage(
                 "EdgeSense",
                 "Please select a valid raster layer in the Layers panel to save.",
                 level=Qgis.MessageLevel.Warning)
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self.iface.mainWindow(),
-            f"Save {layer.name()} — EdgeSense",
-            "",
-            "GeoTIFF (*.tif)"
-        )
-        if not path:
+        out_dir = self.dir_input.text()
+        if not out_dir or not Path(out_dir).is_dir():
+            self.iface.messageBar().pushMessage(
+                "EdgeSense",
+                "Please select a valid Output Directory in the panel first.",
+                level=Qgis.MessageLevel.Warning)
             return
+
+        # Get original filename (fallback to 'Raster' if it wasn't set by the pipeline)
+        base_name = getattr(self, 'original_basename', 'Raster')
+        
+        # Get and sanitize the active layer name (e.g. "Edge Core" -> "EdgeCore")
+        raw_layer_name = layer.name().replace(" ", "")
+        safe_layer_name = "".join([c for c in raw_layer_name if c.isalnum() or c in ('-', '_')])
+        if not safe_layer_name:
+            safe_layer_name = "Mask"
+
+        # Construct the final save path: <original>_<layer>.tif
+        file_name = f"{base_name}_{safe_layer_name}.tif"
+        path = os.path.join(out_dir, file_name)
 
         try:
             provider = layer.dataProvider()
-            pipe     = QgsRasterPipe()
+            pipe = QgsRasterPipe()
             pipe.set(provider.clone())
-
+            
             file_writer = QgsRasterFileWriter(path)
             error = file_writer.writeRaster(
-                pipe,
-                provider.xSize(),
-                provider.ySize(),
-                provider.extent(),
+                pipe, 
+                provider.xSize(), 
+                provider.ySize(), 
+                provider.extent(), 
                 layer.crs()
             )
-
+            
             if error == 0:
-                self._update_footer(f"Saved: {os.path.basename(path)}")
+                self._update_footer(f"Saved: {file_name}")
                 self.iface.messageBar().pushMessage(
-                    "EdgeSense",
-                    f"Layer '{layer.name()}' saved successfully.",
+                    "EdgeSense", 
+                    f"Saved {file_name} successfully!", 
                     level=Qgis.MessageLevel.Success)
             else:
                 self.iface.messageBar().pushMessage(
-                    "EdgeSense",
-                    f"Failed to save layer. Error code: {error}",
+                    "EdgeSense", 
+                    f"Save Error Code: {error}", 
                     level=Qgis.MessageLevel.Critical)
-
+                    
         except Exception as e:
             self.iface.messageBar().pushMessage(
-                "EdgeSense",
-                f"Error saving file: {str(e)}",
+                "EdgeSense", 
+                f"Error saving file: {str(e)}", 
                 level=Qgis.MessageLevel.Critical)
