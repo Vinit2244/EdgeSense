@@ -72,7 +72,7 @@ This fetches a multi-band Sentinel-2 median composite for each configured year a
 ### Plugin Setup (Linux & MacOS)
 
 1. Clone this repository `git clone https://github.com/Vinit2244/EdgeSense.git`
-2. Open your QGIS -> Go to `Settings` -> `User Profiles` -> `Open active profile folder` -> Copy the path to this directory and update the variable `active_profile_folder_path` in `config/constant.py` file and `TARGET_DIR` variable in `scripts/copy_files.sh` file.
+2. Open your QGIS -> Go to `Settings` -> `User Profiles` -> `Open active profile folder` -> Copy the path to this directory and update the variable `active_profile_folder_path` in `config/paths.py` file and modify the `TARGET_DIR` variable in `scripts/copy_files.sh` file upto the 'defaults' extent.
 3. Run: `chmod +x scripts/copy_files.sh`
 4. Then run the script to copy the necessary files into your plugins folder `./scripts/copy_files.sh`.
 
