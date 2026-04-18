@@ -4,7 +4,6 @@
 import sys
 import numpy as np
 import pandas as pd
-import config as cfg
 from pathlib import Path
 from scipy.ndimage import label
 
