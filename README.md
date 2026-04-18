@@ -37,6 +37,13 @@ Forest edges experience higher ecological stress than interior (core) areas due 
 
 ---
 
+## Setup Environment
+
+1. Install uv: [uv intallation guide](https://docs.astral.sh/uv/getting-started/installation/)
+2. Setup env: `uv sync`
+
+---
+
 ## Data Download
 
 ### 1. Get the village boundary shapefile
@@ -72,7 +79,7 @@ This fetches a multi-band Sentinel-2 median composite for each configured year a
 ### Plugin Setup (Linux & MacOS)
 
 1. Clone this repository `git clone https://github.com/Vinit2244/EdgeSense.git`
-2. Open your QGIS -> Go to `Settings` -> `User Profiles` -> `Open active profile folder` -> Copy the path to this directory and update the variable `active_profile_folder_path` in `config/paths.py` file and modify the `TARGET_DIR` variable in `scripts/copy_files.sh` file upto the 'defaults' extent.
+2. Open your QGIS -> Go to `Settings` -> `User Profiles` -> `Open active profile folder` -> Copy the path to this directory and update the variable `active_profile_folder_path` in `config/paths.py` file and modify the `TARGET_DIR` variable in `scripts/copy_files.sh`.
 3. Run: `chmod +x scripts/copy_files.sh`
 4. Then run the script to copy the necessary files into your plugins folder `./scripts/copy_files.sh`.
 
@@ -91,21 +98,6 @@ This fetches a multi-band Sentinel-2 median composite for each configured year a
 ## Normal Pipeline Usage
 
 ### Setup
-
-#### 1. Create and activate a virtual environment
-
-```bash
-python3 -m venv edgesense
-source ./edgesense/bin/activate
-```
-
-#### 2. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
 
 ### Run the complete pipeline
 

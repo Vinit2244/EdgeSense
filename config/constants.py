@@ -19,8 +19,8 @@ image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
 # ============================================================
 max_cloud_cover   = 1  # 1% cloud cover limit
 n_tiles           = 1  # Total tiles to split into (e.g., 9, 16, 25, 36)
-bands_to_download = ['B3', 'B4', 'B8', 'B8A', 'B11']
-rgb_bands         = ['B4', 'B3', 'B2']
+bands_to_download = ['B3', 'B4', 'B8', 'B8A', 'B11'] # Green, Red, NIR, Narrow NIR, SWIR
+rgb_bands         = ['B4', 'B3', 'B2'] # Red, Green, Blue
 
 
 # ============================================================

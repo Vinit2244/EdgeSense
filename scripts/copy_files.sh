@@ -4,8 +4,11 @@
 # Define paths
 # ==========================================
 
-# Directory where plugin should be copied
-TARGET_DIR="/Users/vinitmehta/Library/Application Support/QGIS/QGIS4/profiles/default/python/plugins/EdgeSense"
+# Default user profile directory for QGIS plugins
+TARGET_DIR="/Users/vinitmehta/Library/Application Support/QGIS/QGIS4/profiles/default"
+
+# Append a few more folders for required structure
+TARGET_DIR="$TARGET_DIR/python/plugins/EdgeSense"
 
 # scripts directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
