@@ -21,6 +21,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import config as cfg
 from src.utils import visualise_bands
 
+
 # Initialize Earth Engine
 try:
     ee.Initialize(project=cfg.ee_project)
@@ -213,9 +214,184 @@ def apply_cloud_mask(tiff_path):
 
     return cloud_pct, haze_pct, cloud_mask
 
+def download_for_geom(
+    shapely_geom,
+    out_dir: str,
+    year: int,
+    progress_cb=None,
+) -> Path:
+    """
+    Downloads a Sentinel-2 median composite for a given Shapely geometry and year.
+
+    Parameters
+    ----------
+    shapely_geom : shapely.geometry.*
+        The area of interest (in EPSG:4326 or any CRS — will be reprojected via EE).
+    out_dir : str
+        Directory where the output GeoTIFF will be saved.
+    year : int
+        The year to process (post-monsoon Oct–Dec window).
+    progress_cb : callable, optional
+        A function(msg: str) called with status strings during processing.
+
+    Returns
+    -------
+    Path
+        Absolute path to the saved (and cloud-masked) GeoTIFF.
+
+    Raises
+    ------
+    RuntimeError
+        If Earth Engine is not initialised, no imagery is found, or no tiles
+        download successfully.
+    """
+
+    def _log(msg: str):
+        if progress_cb:
+            progress_cb(msg)
+
+    # ── 1. Initialise Earth Engine ────────────────────────────────────────────
+    try:
+        ee.Initialize(project=cfg.ee_project)
+    except Exception as e:
+        raise RuntimeError(f"Earth Engine initialisation failed: {e}") from e
+
+    # ── 2. Validate / fix geometry ────────────────────────────────────────────
+    if not shapely_geom.is_valid:
+        shapely_geom = shapely_geom.buffer(0)
+
+    if shapely_geom.is_empty:
+        raise ValueError("The supplied geometry is empty.")
+
+    if shapely_geom.geom_type == "GeometryCollection":
+        polys = [g for g in shapely_geom.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
+        shapely_geom = unary_union(polys)
+
+    ee_geom = shapely_to_ee_geometry(shapely_geom)
+
+    # ── 3. Find imagery (post-monsoon Oct–Dec, escalating cloud thresholds) ───
+    cloud_thresholds = cfg.cloud_cover_fallback_thresholds
+
+    collection    = None
+    img_count     = 0
+    used_threshold = None
+
+    for threshold in cloud_thresholds:
+        candidate = (
+            ee.ImageCollection(cfg.image_collection)
+            .filterBounds(ee_geom)
+            .filterDate(f"{year}-10-01", f"{year}-12-31")
+            .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", threshold))
+        )
+        count = candidate.size().getInfo()
+
+        if count > 0:
+            collection     = candidate
+            img_count      = count
+            used_threshold = threshold
+            _log(f"Found {img_count} image(s) at <{threshold}% cloud cover (Oct–Dec {year})")
+            break
+        else:
+            is_last = threshold == cloud_thresholds[-1]
+            _log(
+                f"No images at <{threshold}% (Oct–Dec {year}). "
+                f"{'Trying next threshold…' if not is_last else 'All thresholds exhausted.'}"
+            )
+
+    if img_count == 0:
+        raise RuntimeError(
+            f"No Sentinel-2 imagery found for the AOI in Oct–Dec {year} "
+            f"at any configured cloud threshold."
+        )
+
+    # ── 4. Build median composite ─────────────────────────────────────────────
+    _log(f"Building median composite (<{used_threshold}% cloud)…")
+    median_image = (
+        collection.median()
+        .clip(ee_geom)
+        .select(cfg.bands_to_download)
+    )
+
+    # ── 5. Tile grid ──────────────────────────────────────────────────────────
+    bounds    = shapely_geom.bounds                          # (minx, miny, maxx, maxy)
+    grid_side = max(1, math.ceil(math.sqrt(cfg.n_tiles)))
+    tiles     = make_tile_boxes(bounds, grid_side)
+    _log(f"Downloading {grid_side}×{grid_side} tile(s)…")
+
+    out_dir_path = Path(out_dir)
+    out_dir_path.mkdir(parents=True, exist_ok=True)
+
+    # Derive a slug from the geometry centroid so filenames are unique
+    cx, cy    = shapely_geom.centroid.x, shapely_geom.centroid.y
+    geom_slug = f"aoi_{cx:.4f}_{cy:.4f}".replace("-", "m").replace(".", "p")
+    tiles_tmp = out_dir_path / f"_tiles_{geom_slug}_{year}"
+    tiles_tmp.mkdir(exist_ok=True)
+
+    tile_paths   = []
+    failed_tiles = []
+
+    for idx, (col, row, tile_geom) in enumerate(tiles):
+        tile_path = tiles_tmp / f"tile_{col}_{row}.tif"
+        _log(f"Tile ({col},{row}) [{idx + 1}/{len(tiles)}]…")
+
+        ok = download_tile(median_image, tile_geom, tile_path, cfg.scale, cfg.epsg_code)
+
+        if ok and tile_path.stat().st_size >= 1024:
+            tile_paths.append(tile_path)
+        else:
+            tile_path.unlink(missing_ok=True)
+            failed_tiles.append((col, row))
+
+    if not tile_paths:
+        shutil.rmtree(tiles_tmp, ignore_errors=True)
+        raise RuntimeError(f"All {len(tiles)} tile(s) failed to download for {year}.")
+
+    if failed_tiles:
+        _log(f"Warning: {len(failed_tiles)} tile(s) failed — mosaic may have gaps.")
+
+    # ── 6. Mosaic tiles ───────────────────────────────────────────────────────
+    output_tiff = out_dir_path / f"{geom_slug}_{year}.tif"
+
+    try:
+        if len(tile_paths) == 1:
+            shutil.move(str(tile_paths[0]), str(output_tiff))
+            _log("Single tile — moved directly.")
+        else:
+            _log(f"Mosaicking {len(tile_paths)} tiles…")
+            mosaic_tiles(tile_paths, output_tiff)
+
+        # ── 7. Clip to AOI polygon exactly ────────────────────────────────────
+        _log("Clipping to AOI boundary…")
+        with rasterio.open(output_tiff) as src:
+            clipped_img, clipped_transform = rio_mask(src, [shapely_geom], crop=True, nodata=0)
+            clipped_meta = src.meta.copy()
+
+        clipped_meta.update({
+            "height":    clipped_img.shape[1],
+            "width":     clipped_img.shape[2],
+            "transform": clipped_transform,
+            "nodata":    0,
+        })
+
+        with rasterio.open(output_tiff, "w", **clipped_meta) as dst:
+            dst.write(clipped_img)
+
+        # ── 8. Cloud masking ──────────────────────────────────────────────────
+        _log("Running OmniCloudMask…")
+        try:
+            cloud_pct, haze_pct, _ = apply_cloud_mask(output_tiff)
+            _log(f"Cloud masking done — {cloud_pct:.1f}% masked ({haze_pct:.1f}% haze).")
+        except Exception as e:
+            _log(f"Cloud masking failed (non-fatal): {e}")
+
+    finally:
+        shutil.rmtree(tiles_tmp, ignore_errors=True)
+
+    _log(f"Saved → {output_tiff.name}")
+    return output_tiff.resolve()
 
 # ============================================================
-# Main
+# Main Execution Blocks
 # ============================================================
 def main():
     print(f"Loading shapefile for level='{cfg.aoi_level}'...")
@@ -254,7 +430,7 @@ def main():
     print(f"\nFetching representative composite for '{cfg.aoi_name}' ({cfg.years[0]}-{cfg.years[-1]})...")
 
     # Build the ordered list of thresholds to try: primary first, then fallbacks
-    cloud_thresholds = [cfg.max_cloud_cover] + cfg.cloud_cover_fallback_thresholds
+    cloud_thresholds = cfg.cloud_cover_fallback_thresholds
 
     for year in cfg.years:
         print(f"\n--- Processing Year: {year} ---")

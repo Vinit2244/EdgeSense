@@ -70,7 +70,7 @@ def analyse_change(df):
     ax1.spines[['top', 'right']].set_visible(False)
     ax1.spines[['bottom', 'left']].set_color('#aab4c4')
     ax1.set_title("Metric Guide", fontsize=10, fontweight='bold', pad=6)
-    
+
     notes = (
         "Edge:Core Ratio\n"
         "  Primary hypothesis variable.\n"

@@ -12,13 +12,14 @@ epsg_code    = 4326                              # WGS84 Lat/Lon (Earth Engine s
 years        = list(range(2018, 2019))           # Years to analyze (2018-2024 inclusive)
 scale        = 10.0                              # Sentinel-2's native resolution (10m per pixel)
 image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
+start_date = '{year}-10-01'
+end_date   = '{year}-12-31'
 
 
 # ============================================================
 # Tiff Download Configurations
 # ============================================================
-max_cloud_cover   = 1  # 1% cloud cover limit
-cloud_cover_fallback_thresholds = [35, 50, 70]  # relaxed thresholds tried in order
+cloud_cover_fallback_thresholds = range(1, 50, 5)
 n_tiles           = 1  # Total tiles to split into (e.g., 9, 16, 25, 36)
 bands_to_download = ['B3', 'B4', 'B8', 'B8A', 'B11'] # Green, Red, NIR, Narrow NIR, SWIR
 rgb_bands         = ['B4', 'B3', 'B2'] # Red, Green, Blue

@@ -8,6 +8,8 @@ import rasterio
 import datetime
 import numpy as np
 from pathlib import Path
+from shapely import wkt as shapely_wkt
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
 
 from qgis.PyQt.QtGui import QIcon, QCursor
 from qgis.PyQt.QtCore import Qt, QPropertyAnimation, QEasingCurve, QThread, pyqtSignal
@@ -15,7 +17,7 @@ from qgis.PyQt.QtWidgets import (
     QAction, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QFrame,
     QSizePolicy, QProgressBar, QGraphicsOpacityEffect,
-    QLineEdit, QSpinBox, QDoubleSpinBox, QGridLayout
+    QLineEdit, QSpinBox, QDoubleSpinBox, QGridLayout, QComboBox
 )
 
 from qgis.core import (
@@ -29,6 +31,7 @@ from src.forest_mask import compute_forest_mask_plugin
 from src.edge_core_mask import compute_edge_core_mask_plugin
 from src.spectral_indices import compute_spectral_indices_plugin
 from src.fragmentation_metrics import compute_frag_metrics_plugin
+from src.download_aoi_tif import download_for_geom
 
 plugin_dir = os.path.dirname(__file__)
 
@@ -142,6 +145,29 @@ class RoadMaskWorker(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
 
+class GEEDownloadWorker(QThread):
+    finished = pyqtSignal(str)   # emits output tiff path
+    error    = pyqtSignal(str)
+    progress_msg = pyqtSignal(str)
+
+    def __init__(self, shapely_geom, out_dir, year, parent=None):
+        super().__init__(parent)
+        self.shapely_geom = shapely_geom
+        self.out_dir      = out_dir
+        self.year         = year
+
+    def run(self):
+        try:
+            # Import your existing download logic
+            out_path = download_for_geom(
+                self.shapely_geom,
+                self.out_dir,
+                self.year,
+                progress_cb=lambda msg: self.progress_msg.emit(msg)
+            )
+            self.finished.emit(str(out_path))
+        except Exception as e:
+            self.error.emit(str(e))
 
 # ============================================================
 # UI Components
@@ -231,12 +257,12 @@ class OverlayPanel(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
         if self._drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            self.move(event.globalPos() - self._drag_pos)
             event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -268,6 +294,89 @@ class EdgeSensePlugin:
     def unload(self):
         self.iface.removeToolBarIcon(self.action)
         del self.action
+
+    def _refresh_layer_list(self):
+        """Repopulates the combo with current vector layers."""
+        self.layer_combo.clear()
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.type() == QgsMapLayerType.VectorLayer:
+                self.layer_combo.addItem(layer.name(), layer)
+
+        has_layers = self.layer_combo.count() > 0
+        self.btn_download.setEnabled(has_layers and bool(self.dir_input.text()))
+        if not has_layers:
+            self.download_status.setText("No vector layers loaded in QGIS")
+
+    def _get_shapely_geom_from_combo(self):
+        """Returns a shapely geometry from the selected vector layer."""
+        layer = self.layer_combo.currentData()
+        if not layer:
+            return None
+
+        features = list(layer.selectedFeatures()) or list(layer.getFeatures())
+        if not features:
+            return None
+
+        # Merge all features into one geometry
+        geoms = []
+        target_crs = QgsCoordinateReferenceSystem(f"EPSG:4326")
+        xform = QgsCoordinateTransform(layer.crs(), target_crs, QgsProject.instance())
+
+        for feat in features:
+            g = feat.geometry()
+            g.transform(xform)
+            geoms.append(g)
+
+        from qgis.core import QgsGeometry
+        merged = QgsGeometry.unaryUnion(geoms)
+
+        return shapely_wkt.loads(merged.asWkt())
+
+
+    def run_gee_download(self):
+        """Kicks off the GEE download in a background thread."""
+        shapely_geom = self._get_shapely_geom_from_combo()
+        if shapely_geom is None:
+            self.iface.messageBar().pushMessage(
+                "EdgeSense", "No features found in selected layer.",
+                level=Qgis.MessageLevel.Warning)
+            return
+
+        out_dir = self.dir_input.text()
+        if not out_dir:
+            self.iface.messageBar().pushMessage(
+                "EdgeSense", "Set an output directory first.",
+                level=Qgis.MessageLevel.Warning)
+            return
+
+        year = self.year_spin.value()
+        self.btn_download.setEnabled(False)
+        self.download_status.setText("Connecting to GEE…")
+        self.download_status.setStyleSheet(STATUS_LABEL_STYLE + "color: #f0a500;")
+
+        self._dl_worker = GEEDownloadWorker(shapely_geom, out_dir, year)
+        self._dl_worker.progress_msg.connect(lambda msg: self.download_status.setText(msg[:60]))
+        self._dl_worker.finished.connect(self._on_download_done)
+        self._dl_worker.error.connect(self._on_download_error)
+        self._dl_worker.start()
+
+    def _on_download_done(self, tiff_path):
+        self.btn_download.setEnabled(True)
+        self.download_status.setText(f"✓ {Path(tiff_path).name}")
+        self.download_status.setStyleSheet(STATUS_LABEL_STYLE + "color: #ffffff;")
+        # Auto-load the downloaded TIF into QGIS
+        layer = QgsRasterLayer(tiff_path, Path(tiff_path).stem)
+        QgsProject.instance().addMapLayer(layer)
+        self.iface.messageBar().pushMessage(
+            "EdgeSense", f"Downloaded and loaded: {Path(tiff_path).name}",
+            level=Qgis.MessageLevel.Success)
+
+    def _on_download_error(self, msg):
+        self.btn_download.setEnabled(True)
+        self.download_status.setText("Download failed")
+        self.download_status.setStyleSheet(STATUS_LABEL_STYLE + "color: #cc4444;")
+        self.iface.messageBar().pushMessage(
+            "EdgeSense", f"GEE error: {msg}", level=Qgis.MessageLevel.Critical)
 
     def open_panel(self):
         if hasattr(self, 'window') and self.window:
@@ -364,7 +473,7 @@ class EdgeSensePlugin:
         # Row 1: Band Indices (Ranges start at 1 now)
         self.red_spin = QSpinBox(); self.red_spin.setRange(1, 20); self.red_spin.setValue(2)
         add_spin_widget(1, 0, "Red Band Idx:", self.red_spin)
-        
+
         self.nir_spin = QSpinBox(); self.nir_spin.setRange(1, 20); self.nir_spin.setValue(3)
         add_spin_widget(1, 1, "NIR Band Idx:", self.nir_spin)
 
@@ -378,14 +487,14 @@ class EdgeSensePlugin:
         # Row 3: Thresholds
         self.ndvi_thresh_spin = QDoubleSpinBox(); self.ndvi_thresh_spin.setRange(-1.0, 1.0); self.ndvi_thresh_spin.setSingleStep(0.05); self.ndvi_thresh_spin.setValue(0.4)
         add_spin_widget(3, 0, "NDVI Thresh:", self.ndvi_thresh_spin)
-        
+
         self.ndmi_thresh_spin = QDoubleSpinBox(); self.ndmi_thresh_spin.setRange(-1.0, 1.0); self.ndmi_thresh_spin.setSingleStep(0.05); self.ndmi_thresh_spin.setValue(0.1)
         add_spin_widget(3, 1, "NDMI Thresh:", self.ndmi_thresh_spin)
 
         # Row 4: Environment Settings
         self.road_buffer_spin = QDoubleSpinBox(); self.road_buffer_spin.setRange(0.0, 500.0); self.road_buffer_spin.setValue(10.0)
         add_spin_widget(4, 0, "Road Buf (m):", self.road_buffer_spin)
-        
+
         self.edge_width_spin = QSpinBox(); self.edge_width_spin.setRange(10, 500); self.edge_width_spin.setValue(100)
         add_spin_widget(4, 1, "Edge Width (m):", self.edge_width_spin)
 
@@ -405,7 +514,7 @@ class EdgeSensePlugin:
         self.dir_input.setPlaceholderText("Select output folder...")
         self.dir_input.setReadOnly(True)
         self.dir_input.setStyleSheet(INPUT_STYLE)
-        
+
         btn_browse = QPushButton("Browse")
         btn_browse.setStyleSheet(SMALL_BTN_STYLE)
         btn_browse.clicked.connect(self.select_out_dir)
@@ -415,6 +524,71 @@ class EdgeSensePlugin:
         cfg_layout.addLayout(dir_row)
 
         root.addLayout(cfg_layout)
+
+        # ── AOI & Download Section ──────────────────────────────────
+        div_aoi = QFrame()
+        div_aoi.setStyleSheet(DIVIDER_STYLE)
+        div_aoi.setFrameShape(QFrame.Shape.HLine)
+        root.addWidget(div_aoi)
+
+        aoi_header = QLabel("AOI & Download")
+        aoi_header.setStyleSheet(SUBTITLE_STYLE)
+        root.addWidget(aoi_header)
+
+        # Layer picker row
+        layer_row = QHBoxLayout()
+        self.layer_combo = QComboBox()
+        self.layer_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: #2b2b2b;
+                color: #dcdcdc;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                padding: 4px 6px;
+                font-size: 11px;
+                font-family: {FONT_FAMILY};
+            }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background-color: #2b2b2b;
+                color: #dcdcdc;
+                selection-background-color: #3a3a3a;
+                border: 1px solid #404040;
+            }}
+        """)
+        self.layer_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        btn_refresh = QPushButton("↺")
+        btn_refresh.setFixedSize(28, 28)
+        btn_refresh.setToolTip("Refresh layer list")
+        btn_refresh.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #2b2b2b; color: #888888;
+                border: 1px solid #404040; border-radius: 4px;
+                font-size: 14px; font-family: {FONT_FAMILY};
+            }}
+            QPushButton:hover {{ color: #ffffff; background-color: #383838; }}
+        """)
+        btn_refresh.clicked.connect(self._refresh_layer_list)
+
+        layer_row.addWidget(self.layer_combo)
+        layer_row.addWidget(btn_refresh)
+        root.addLayout(layer_row)
+
+        # Download button
+        self.btn_download = QPushButton("⬇  Download TIF from GEE")
+        self.btn_download.setStyleSheet(BTN_STYLE)
+        self.btn_download.setFixedHeight(32)
+        self.btn_download.clicked.connect(self.run_gee_download)
+        root.addWidget(self.btn_download)
+
+        self.download_status = QLabel("")
+        self.download_status.setStyleSheet(STATUS_LABEL_STYLE + "color: #888888;")
+        self.download_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self.download_status)
+
+        # Populate immediately
+        self._refresh_layer_list()
 
         div2 = QFrame()
         div2.setStyleSheet(DIVIDER_STYLE)
@@ -465,6 +639,7 @@ class EdgeSensePlugin:
         if folder:
             self.dir_input.setText(folder)
             self.check_ready_state()
+            self._refresh_layer_list()
 
     def check_ready_state(self):
         if self.dir_input.text() and Path(self.dir_input.text()).exists():
@@ -492,14 +667,14 @@ class EdgeSensePlugin:
 
         self.image = self.meta = self.ndvi = self.ndmi = None
         self.forest_mask = self.road_mask = self.edge_core = None
-        
+
         self.step_run.set_working()
         self.step_save.set_locked()
         self.progress.setValue(0)
 
         # Step 1: Load Raster
         path = layer.source()
-        self.original_basename = Path(path).stem 
+        self.original_basename = Path(path).stem
         self.image, self.meta = read_tif(path)
         self.progress.setValue(1)
 
@@ -508,7 +683,7 @@ class EdgeSensePlugin:
         nir_idx = self.nir_spin.value() - 1
         swir_idx = self.swir_spin.value() - 1
         nnir_idx = self.nnir_spin.value() - 1
-        
+
         self.ndvi, self.ndmi = compute_spectral_indices_plugin(self.image, red_idx, nir_idx, swir_idx, nnir_idx)
         self.display_raster(self.ndvi[np.newaxis, ...], "NDVI")
         self.display_raster(self.ndmi[np.newaxis, ...], "NDMI")
@@ -517,7 +692,7 @@ class EdgeSensePlugin:
         # Step 3: Compute Forest Mask
         ndvi_th = self.ndvi_thresh_spin.value()
         ndmi_th = self.ndmi_thresh_spin.value()
-        
+
         self.forest_mask = compute_forest_mask_plugin(self.ndvi, self.ndmi, ndvi_th, ndmi_th)
         self.display_raster(self.forest_mask[np.newaxis, ...], "Forest Mask")
         self.progress.setValue(3)
@@ -545,7 +720,7 @@ class EdgeSensePlugin:
         # Step 5: Compute Edge/Core
         self._update_footer("Computing Edge/Core...")
         working_mask = self.forest_mask.copy()
-        
+
         if self.image is not None and self.meta is not None:
             nodata_val = self.meta.get("nodata")
             if nodata_val is not None:
@@ -571,11 +746,11 @@ class EdgeSensePlugin:
         scale_val = self.scale_spin.value()
 
         summary = compute_frag_metrics_plugin(
-            self.forest_mask, 
-            self.edge_core, 
-            self.road_mask, 
-            self.meta, 
-            year_val, 
+            self.forest_mask,
+            self.edge_core,
+            self.road_mask,
+            self.meta,
+            year_val,
             out_dir,
             scale_val
         )
@@ -583,7 +758,7 @@ class EdgeSensePlugin:
         self.progress.setValue(6)
         self.step_run.set_done()
         self.step_save.set_ready()
-        
+
         if summary:
             self._update_footer(f"Metrics saved to {Path(out_dir).name}")
             self.iface.messageBar().pushMessage(
@@ -624,7 +799,7 @@ class EdgeSensePlugin:
 
     def save_output(self):
         layer = self.iface.activeLayer()
-        
+
         if not layer or layer.type() != QgsMapLayerType.RasterLayer:
             self.iface.messageBar().pushMessage(
                 "EdgeSense",
@@ -642,7 +817,7 @@ class EdgeSensePlugin:
 
         # Get original filename (fallback to 'Raster' if it wasn't set by the pipeline)
         base_name = getattr(self, 'original_basename', 'Raster')
-        
+
         # Get and sanitize the active layer name (e.g. "Edge Core" -> "EdgeCore")
         raw_layer_name = layer.name().replace(" ", "")
         safe_layer_name = "".join([c for c in raw_layer_name if c.isalnum() or c in ('-', '_')])
@@ -657,30 +832,30 @@ class EdgeSensePlugin:
             provider = layer.dataProvider()
             pipe = QgsRasterPipe()
             pipe.set(provider.clone())
-            
+
             file_writer = QgsRasterFileWriter(path)
             error = file_writer.writeRaster(
-                pipe, 
-                provider.xSize(), 
-                provider.ySize(), 
-                provider.extent(), 
+                pipe,
+                provider.xSize(),
+                provider.ySize(),
+                provider.extent(),
                 layer.crs()
             )
-            
+
             if error == 0:
                 self._update_footer(f"Saved: {file_name}")
                 self.iface.messageBar().pushMessage(
-                    "EdgeSense", 
-                    f"Saved {file_name} successfully!", 
+                    "EdgeSense",
+                    f"Saved {file_name} successfully!",
                     level=Qgis.MessageLevel.Success)
             else:
                 self.iface.messageBar().pushMessage(
-                    "EdgeSense", 
-                    f"Save Error Code: {error}", 
+                    "EdgeSense",
+                    f"Save Error Code: {error}",
                     level=Qgis.MessageLevel.Critical)
-                    
+
         except Exception as e:
             self.iface.messageBar().pushMessage(
-                "EdgeSense", 
-                f"Error saving file: {str(e)}", 
+                "EdgeSense",
+                f"Error saving file: {str(e)}",
                 level=Qgis.MessageLevel.Critical)

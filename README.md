@@ -1,5 +1,4 @@
 # EdgeSense
-
 ### Forest Edge Pressure & Fragmentation Analysis
 
 > *Do increasing edge-to-core ratios amplify ecological stress signals within forest patches?*
@@ -64,10 +63,8 @@ earthengine authenticate
 
 ### 4. Download Sentinel-2 imagery
 
-> **Note:** Before running the script, update the `n_tiles` variable in `config/constants.py` to ensure that each tile stays within the allowed memory limit during download.
-
 ```bash
-uv run python tools/download_aoi_tif.py
+python -m tools.download_aoi_tif
 ```
 
 This fetches a multi-band Sentinel-2 median composite for each configured year and saves:
@@ -110,7 +107,7 @@ chmod +x srcipts/run_pipeline.sh
 ### Visualising Trends
 
 ```bash
-uv run python tools/plot_fragmentation_trends.py
+python -m tools.plot_fragmentation_trends.py
 ```
 
 ---
@@ -121,5 +118,84 @@ uv run python tools/plot_fragmentation_trends.py
 
 ## Caveats
 
-- We are getting road masks but we don't have access to road masks for all years so we are just taking the current road mask and applying it to all the years throughout.
-- Computation of fragmentation metrics requires edge-core mask, forest mask and road mask so if using the plugin make sure to download and save those before running the fragmentation metrics calculation code.
+* We are getting road masks but we don't have access to road masks for all years so we are just taking the current road mask and applying it to all the years throughout.
+* Computation of fragmentation metrics requires edge-core mask, forest mask and road mask so if using the plugin make sure to download and save those before running the fragmentation metrics calculation code.
+
+
+
+## Downloading a TIF from Google Earth Engine using EdgeSense Plugin
+
+## Before you start
+- EdgeSense plugin loaded in QGIS
+- Your `.shp` shapefile ready
+- Internet connection
+
+---
+
+## Step 1 — Load your shapefile
+**Drag and drop** your `.shp` file onto the QGIS map canvas. The boundary polygons will appear on the map.
+
+---
+
+## Step 2 — Find the exact feature name
+1. In the **Layers panel**, right-click your shapefile → **Open Attribute Table**
+2. Find the column with place names (e.g. `DISTRICT`, `SUB_DIST`)
+3. Note the **exact spelling** of your target area
+
+---
+
+## Step 3 — Select your area
+1. Click **Edit → Select → Select Features by Expression**
+2. Type your expression:
+```
+"COLUMN_NAME" = 'Exact Value'
+```
+Examples:
+```
+"DISTRICT" = 'Visakhapatnam'
+"SUB_DIST" = 'RAMPA CHODAVARAM'
+```
+3. Click **Select Features** then close the dialog
+
+You should see `1 matching feature(s) selected` at the bottom of QGIS and the polygon highlighted in yellow.
+
+> If you see `0 matching features` — recheck spelling and column name in the attribute table.
+
+---
+
+## Step 4 — Set output directory
+In the EdgeSense panel, click **Browse** next to Output Directory and choose a folder.
+
+> The Download button stays greyed out until this is done.
+
+---
+
+## Step 5 — Connect the shapefile
+In the **AOI & DOWNLOAD** section of the panel:
+- If your shapefile name already appears in the dropdown → skip to Step 6
+- If it's empty → click the **↺ refresh button**
+
+---
+
+## Step 6 — Download the TIF
+1. Set the **Analysis Year** at the top of the panel
+2. Click **⬇ Download TIF from GEE**
+3. Watch the footer for progress — download takes **1–5 minutes**
+
+When complete, the TIF auto-loads into QGIS as a new layer.
+
+---
+
+## Step 7 — Run the Pipeline
+With the downloaded TIF as the active layer, click **Run Pipeline**.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Download button greyed out | Set output directory, then click ↺ refresh |
+| 0 matching features | Copy value exactly from attribute table |
+| GEE error | Check **Python error** tab in Log Messages panel |
+| Missing module on startup | Run `pip_main(['install', 'earthengine-api', 'geopandas', 'shapely'])` in QGIS Python Console |
