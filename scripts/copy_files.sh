@@ -8,7 +8,7 @@
 TARGET_DIR="/Users/vinitmehta/Library/Application Support/QGIS/QGIS4/profiles/default"
 
 # Append a few more folders for required structure
-TARGET_DIR="$TARGET_DIR/python/plugins/EdgeSense"
+DEST_DIR="$TARGET_DIR/python/plugins/EdgeSense"
 
 # scripts directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -17,13 +17,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 echo "Project root: $PROJECT_ROOT"
-echo "Target directory: $TARGET_DIR"
+echo "Destination directory: $DEST_DIR"
 
 # ==========================================
 # Ensure target directory exists
 # ==========================================
 
-mkdir -p "$TARGET_DIR"
+mkdir -p "$DEST_DIR"
 
 # ==========================================
 # Files/Folders to copy from project root
@@ -46,7 +46,7 @@ ITEMS=(
 
 for item in "${ITEMS[@]}"
 do
-    cp -r "$PROJECT_ROOT/$item" "$TARGET_DIR/"
+    cp -r "$PROJECT_ROOT/$item" "$DEST_DIR/"
 done
 
 echo "Copying files completed."

@@ -33,6 +33,7 @@ india_boundary_shapefiles = {
 
 tiffs_dir          = input_dir / 'tiffs'
 output_dir         = project_root / 'output'
+val_dir            = output_dir / "validation"
 ndvi_dir           = output_dir / 'ndvi'
 ndmi_dir           = output_dir / 'ndmi'
 metrics_dir        = output_dir / 'fragmentation_metrics'

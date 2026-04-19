@@ -5,7 +5,6 @@
 set -e
 
 echo "Starting EdgeSense pipeline..."
-echo ""
 
 echo ""
 echo "Step 1: Computing Spectral Indices..."
