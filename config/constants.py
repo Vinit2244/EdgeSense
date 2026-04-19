@@ -18,6 +18,7 @@ image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
 # Tiff Download Configurations
 # ============================================================
 max_cloud_cover   = 1  # 1% cloud cover limit
+cloud_cover_fallback_thresholds = [35, 50, 70]  # relaxed thresholds tried in order
 n_tiles           = 1  # Total tiles to split into (e.g., 9, 16, 25, 36)
 bands_to_download = ['B3', 'B4', 'B8', 'B8A', 'B11'] # Green, Red, NIR, Narrow NIR, SWIR
 rgb_bands         = ['B4', 'B3', 'B2'] # Red, Green, Blue
