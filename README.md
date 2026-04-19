@@ -1,4 +1,5 @@
 # EdgeSense
+
 ### Forest Edge Pressure & Fragmentation Analysis
 
 > *Do increasing edge-to-core ratios amplify ecological stress signals within forest patches?*
@@ -63,8 +64,10 @@ earthengine authenticate
 
 ### 4. Download Sentinel-2 imagery
 
+> **Note:** Before running the script, update the `n_tiles` variable in `config/constants.py` to ensure that each tile stays within the allowed memory limit during download.
+
 ```bash
-python -m tools.download_aoi_tif
+uv run python tools/download_aoi_tif.py
 ```
 
 This fetches a multi-band Sentinel-2 median composite for each configured year and saves:
@@ -107,7 +110,7 @@ chmod +x srcipts/run_pipeline.sh
 ### Visualising Trends
 
 ```bash
-python -m tools.plot_fragmentation_trends.py
+uv run python tools/plot_fragmentation_trends.py
 ```
 
 ---
@@ -118,5 +121,5 @@ python -m tools.plot_fragmentation_trends.py
 
 ## Caveats
 
-* We are getting road masks but we don't have access to road masks for all years so we are just taking the current road mask and applying it to all the years throughout.
-* Computation of fragmentation metrics requires edge-core mask, forest mask and road mask so if using the plugin make sure to download and save those before running the fragmentation metrics calculation code.
+- We are getting road masks but we don't have access to road masks for all years so we are just taking the current road mask and applying it to all the years throughout.
+- Computation of fragmentation metrics requires edge-core mask, forest mask and road mask so if using the plugin make sure to download and save those before running the fragmentation metrics calculation code.
