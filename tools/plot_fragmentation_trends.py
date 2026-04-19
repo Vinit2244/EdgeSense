@@ -36,7 +36,7 @@ def analyse_change(df):
 
     fig.suptitle(
         f"Forest Fragmentation & Ecological Stress Trends  |  {cfg.aoi_slug}  "
-        f"({cfg.years[0]}–{cfg.years[-1]})",
+        f"({years[0]}–{years[-1]})",
         fontsize=15, fontweight='bold', y=0.98
     )
 
@@ -70,7 +70,7 @@ def analyse_change(df):
     ax1.spines[['top', 'right']].set_visible(False)
     ax1.spines[['bottom', 'left']].set_color('#aab4c4')
     ax1.set_title("Metric Guide", fontsize=10, fontweight='bold', pad=6)
-
+    
     notes = (
         "Edge:Core Ratio\n"
         "  Primary hypothesis variable.\n"
@@ -165,21 +165,21 @@ def analyse_change(df):
 
 
 if __name__ == "__main__":
-    all_years_summary = []
-
-    for year in cfg.years:
-        year_summary_path = cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_{year}.csv"
-        if not year_summary_path.exists():
-            print(f"Summary CSV for {year} not found, skipping.")
-            continue
-
-        year_summary = pd.read_csv(year_summary_path).iloc[0].to_dict()
-        all_years_summary.append(year_summary)
-
-    if not all_years_summary:
-        print("No summary data found. Run the pipeline first.")
+    # Define the path to the consolidated CSV
+    summary_path = cfg.metrics_dir / f"FragSummary_{cfg.aoi_slug}_all_years.csv"
+    
+    # Check if the file exists
+    if not summary_path.exists():
+        print(f"Summary CSV not found at: {summary_path}\nRun the pipeline first.")
         sys.exit(1)
 
+    # Load the entire summary into a pandas DataFrame
+    df_summary = pd.read_csv(summary_path)
+
+    # Ensure the output directory exists
     cfg.visualisations_dir.mkdir(parents=True, exist_ok=True)
-    analyse_change(pd.DataFrame(all_years_summary))
+    
+    # Run the plotting function
+    analyse_change(df_summary)
+    
     print("\nFragmentation trends analysis complete.")

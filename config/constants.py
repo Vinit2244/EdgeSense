@@ -2,10 +2,10 @@
 # Common Configurations
 # ============================================================
 state        = "ANDHRA_PRADESH"                  # Must match the folder name for shapefiles in input/
-# aoi_level    = "subdistrict"                     # Administrative level: "village" | "subdistrict" | "district" | "state"
-# aoi_name     = "Rampa Chodavaram"                # Name as it appears in the shapefile's attribute table
-aoi_level    = "village"
-aoi_name     = "Rampachodavaram (CT)"
+aoi_level    = "subdistrict"                     # Administrative level: "village" | "subdistrict" | "district" | "state"
+aoi_name     = "Rampa Chodavaram"                # Name as it appears in the shapefile's attribute table
+# aoi_level    = "village"
+# aoi_name     = "Rampachodavaram (CT)"
 aoi_slug     = aoi_name.replace(' ', '_')        # Used for naming outputs
 ee_project   = 'ee-vinitmehta'                   # GEE project name
 epsg_code    = 4326                              # WGS84 Lat/Lon (Earth Engine standard)

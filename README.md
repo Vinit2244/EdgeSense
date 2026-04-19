@@ -37,10 +37,17 @@ Forest edges experience higher ecological stress than interior (core) areas due 
 
 ---
 
+## Results
+
+All outputs and results can be found on this [google drive link](https://drive.google.com/drive/folders/1RSsDQbVAdNWlzGFQHG2kKv7PG377L_Nn?usp=sharing).
+
+---
+
 ## Setup Environment
 
 1. Install uv: [uv intallation guide](https://docs.astral.sh/uv/getting-started/installation/)
 2. Setup env: `uv sync`
+3. Activate env: `source .venv/bin/activate`
 
 ---
 
@@ -64,7 +71,7 @@ earthengine authenticate
 ### 4. Download Sentinel-2 imagery
 
 ```bash
-python -m tools.download_aoi_tif
+uv run python tools/download_aoi_tif.py
 ```
 
 This fetches a multi-band Sentinel-2 median composite for each configured year and saves:
@@ -107,7 +114,7 @@ chmod +x srcipts/run_pipeline.sh
 ### Visualising Trends
 
 ```bash
-python -m tools.plot_fragmentation_trends.py
+uv run python tools/plot_fragmentation_trends.py
 ```
 
 ---

@@ -30,4 +30,4 @@ echo ""
 echo "EdgeSense pipeline complete."
 
 echo ""
-echo "To plot fragmentation trends graphs, run: python tools/plot_fragmentation_trends.py"
+echo "To plot fragmentation trends graphs, run: uv run python tools/plot_fragmentation_trends.py"
