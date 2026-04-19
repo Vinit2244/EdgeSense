@@ -9,7 +9,7 @@ aoi_name     = "Rampa Chodavaram"                # Name as it appears in the sha
 aoi_slug     = aoi_name.replace(' ', '_')        # Used for naming outputs
 ee_project   = 'ee-vinitmehta'                   # GEE project name
 epsg_code    = 4326                              # WGS84 Lat/Lon (Earth Engine standard)
-years        = list(range(2018, 2019))           # Years to analyze (2018-2024 inclusive)
+years        = list(range(2018, 2025))           # Years to analyze (2018-2024 inclusive)
 scale        = 10.0                              # Sentinel-2's native resolution (10m per pixel)
 image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
 start_date = '{year}-10-01'
@@ -38,15 +38,15 @@ swir_band_index       = 4  # B11  <- used for FCC visualisation
 mask_gen_bands        = [1, 0, 2]
 
 # Threshold for forest-range pixels (NDVI >= this value means "forest")
-ndvi_threshold = 0.4
-ndmi_threshold = 0.1
+ndvi_threshold = 0.65
+ndmi_threshold = 0.3
 
 
 # ============================================================
 # Forest Cover Configurations
 # ============================================================
 mask_type = "smooth_boundary"  # "raw" or "smooth_boundary"
-smooth_kernel_size = 3         # Size of the smoothing kernel (must be odd, e.g., 3, 5, 7)
+smooth_kernel_size = 5         # Size of the smoothing kernel (must be odd, e.g., 3, 5, 7)
 
 
 # ============================================================

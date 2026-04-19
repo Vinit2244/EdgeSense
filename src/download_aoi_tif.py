@@ -11,6 +11,7 @@ import rasterio
 import numpy as np
 import geopandas as gpd
 from pathlib import Path
+import matplotlib.pyplot as plt
 from shapely.geometry import box
 from shapely.ops import unary_union
 from rasterio.mask import mask as rio_mask
@@ -20,7 +21,6 @@ from rasterio.merge import merge as rio_merge
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import config as cfg
 from src.utils import visualise_bands
-
 
 # Initialize Earth Engine
 try:
@@ -214,49 +214,19 @@ def apply_cloud_mask(tiff_path):
 
     return cloud_pct, haze_pct, cloud_mask
 
-def download_for_geom(
-    shapely_geom,
-    out_dir: str,
-    year: int,
-    progress_cb=None,
-) -> Path:
-    """
-    Downloads a Sentinel-2 median composite for a given Shapely geometry and year.
 
-    Parameters
-    ----------
-    shapely_geom : shapely.geometry.*
-        The area of interest (in EPSG:4326 or any CRS — will be reprojected via EE).
-    out_dir : str
-        Directory where the output GeoTIFF will be saved.
-    year : int
-        The year to process (post-monsoon Oct–Dec window).
-    progress_cb : callable, optional
-        A function(msg: str) called with status strings during processing.
-
-    Returns
-    -------
-    Path
-        Absolute path to the saved (and cloud-masked) GeoTIFF.
-
-    Raises
-    ------
-    RuntimeError
-        If Earth Engine is not initialised, no imagery is found, or no tiles
-        download successfully.
-    """
-
+def download_for_geom(shapely_geom, out_dir, year, progress_cb=None):
     def _log(msg: str):
         if progress_cb:
             progress_cb(msg)
 
-    # ── 1. Initialise Earth Engine ────────────────────────────────────────────
+    # Initialise Earth Engine
     try:
         ee.Initialize(project=cfg.ee_project)
     except Exception as e:
         raise RuntimeError(f"Earth Engine initialisation failed: {e}") from e
 
-    # ── 2. Validate / fix geometry ────────────────────────────────────────────
+    # Validate / fix geometry
     if not shapely_geom.is_valid:
         shapely_geom = shapely_geom.buffer(0)
 
@@ -269,7 +239,7 @@ def download_for_geom(
 
     ee_geom = shapely_to_ee_geometry(shapely_geom)
 
-    # ── 3. Find imagery (post-monsoon Oct–Dec, escalating cloud thresholds) ───
+    # Find imagery (post-monsoon Oct-Dec, escalating cloud thresholds)
     cloud_thresholds = cfg.cloud_cover_fallback_thresholds
 
     collection    = None
@@ -280,7 +250,7 @@ def download_for_geom(
         candidate = (
             ee.ImageCollection(cfg.image_collection)
             .filterBounds(ee_geom)
-            .filterDate(f"{year}-10-01", f"{year}-12-31")
+            .filterDate(cfg.start_date.format(year=year), cfg.end_date.format(year=year))
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", threshold))
         )
         count = candidate.size().getInfo()
@@ -289,34 +259,34 @@ def download_for_geom(
             collection     = candidate
             img_count      = count
             used_threshold = threshold
-            _log(f"Found {img_count} image(s) at <{threshold}% cloud cover (Oct–Dec {year})")
+            _log(f"Found {img_count} image(s) at <{threshold}% cloud cover (Oct-Dec {year})")
             break
         else:
             is_last = threshold == cloud_thresholds[-1]
             _log(
-                f"No images at <{threshold}% (Oct–Dec {year}). "
-                f"{'Trying next threshold…' if not is_last else 'All thresholds exhausted.'}"
+                f"No images at <{threshold}% (Oct-Dec {year}). "
+                f"{'Trying next threshold...' if not is_last else 'All thresholds exhausted.'}"
             )
 
     if img_count == 0:
         raise RuntimeError(
-            f"No Sentinel-2 imagery found for the AOI in Oct–Dec {year} "
+            f"No Sentinel-2 imagery found for the AOI in Oct-Dec {year} "
             f"at any configured cloud threshold."
         )
 
-    # ── 4. Build median composite ─────────────────────────────────────────────
-    _log(f"Building median composite (<{used_threshold}% cloud)…")
+    # Build median composite
+    _log(f"Building median composite (<{used_threshold}% cloud)...")
     median_image = (
         collection.median()
         .clip(ee_geom)
         .select(cfg.bands_to_download)
     )
 
-    # ── 5. Tile grid ──────────────────────────────────────────────────────────
+    # Tile grid
     bounds    = shapely_geom.bounds                          # (minx, miny, maxx, maxy)
     grid_side = max(1, math.ceil(math.sqrt(cfg.n_tiles)))
     tiles     = make_tile_boxes(bounds, grid_side)
-    _log(f"Downloading {grid_side}×{grid_side} tile(s)…")
+    _log(f"Downloading {grid_side}×{grid_side} tile(s)...")
 
     out_dir_path = Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
@@ -332,7 +302,7 @@ def download_for_geom(
 
     for idx, (col, row, tile_geom) in enumerate(tiles):
         tile_path = tiles_tmp / f"tile_{col}_{row}.tif"
-        _log(f"Tile ({col},{row}) [{idx + 1}/{len(tiles)}]…")
+        _log(f"Tile ({col},{row}) [{idx + 1}/{len(tiles)}]...")
 
         ok = download_tile(median_image, tile_geom, tile_path, cfg.scale, cfg.epsg_code)
 
@@ -349,7 +319,7 @@ def download_for_geom(
     if failed_tiles:
         _log(f"Warning: {len(failed_tiles)} tile(s) failed — mosaic may have gaps.")
 
-    # ── 6. Mosaic tiles ───────────────────────────────────────────────────────
+    # Mosaic tiles
     output_tiff = out_dir_path / f"{geom_slug}_{year}.tif"
 
     try:
@@ -357,11 +327,11 @@ def download_for_geom(
             shutil.move(str(tile_paths[0]), str(output_tiff))
             _log("Single tile — moved directly.")
         else:
-            _log(f"Mosaicking {len(tile_paths)} tiles…")
+            _log(f"Mosaicking {len(tile_paths)} tiles...")
             mosaic_tiles(tile_paths, output_tiff)
 
-        # ── 7. Clip to AOI polygon exactly ────────────────────────────────────
-        _log("Clipping to AOI boundary…")
+        # Clip to AOI polygon exactly
+        _log("Clipping to AOI boundary...")
         with rasterio.open(output_tiff) as src:
             clipped_img, clipped_transform = rio_mask(src, [shapely_geom], crop=True, nodata=0)
             clipped_meta = src.meta.copy()
@@ -376,8 +346,8 @@ def download_for_geom(
         with rasterio.open(output_tiff, "w", **clipped_meta) as dst:
             dst.write(clipped_img)
 
-        # ── 8. Cloud masking ──────────────────────────────────────────────────
-        _log("Running OmniCloudMask…")
+        # Cloud masking
+        _log("Running OmniCloudMask...")
         try:
             cloud_pct, haze_pct, _ = apply_cloud_mask(output_tiff)
             _log(f"Cloud masking done — {cloud_pct:.1f}% masked ({haze_pct:.1f}% haze).")
@@ -390,8 +360,9 @@ def download_for_geom(
     _log(f"Saved → {output_tiff.name}")
     return output_tiff.resolve()
 
+
 # ============================================================
-# Main Execution Blocks
+# Main
 # ============================================================
 def main():
     print(f"Loading shapefile for level='{cfg.aoi_level}'...")
@@ -435,9 +406,7 @@ def main():
     for year in cfg.years:
         print(f"\n--- Processing Year: {year} ---")
 
-        # -------------------------------------------------------
-        # Try post-monsoon (Oct–Dec) at increasing cloud thresholds
-        # -------------------------------------------------------
+        # Try post-monsoon (Oct-Dec) at increasing cloud thresholds
         collection = None
         img_count  = 0
         used_threshold = None
@@ -502,7 +471,7 @@ def main():
         output_tiff = Path(cfg.tiffs_dir) / f"{cfg.aoi_slug}_{year}.tif"
 
         try:
-            # 1. Handle Mosaicking / Moving
+            # Handle Mosaicking / Moving
             if len(tile_paths) == 1:
                 shutil.move(str(tile_paths[0]), str(output_tiff))
                 print(f"  Single tile — moved directly to {output_tiff.name}")
@@ -511,9 +480,7 @@ def main():
                 mosaic_tiles(tile_paths, output_tiff)
                 print("✓")
 
-            # ==========================================================
             # Strictly Mask the TIFF to the Shapely Polygon
-            # ==========================================================
             print("  Applying strict polygon mask to TIFF...", end=" ", flush=True)
             with rasterio.open(output_tiff) as src:
                 # crop=True shrinks the bbox, nodata=0 forces outside pixels to 0
@@ -533,9 +500,7 @@ def main():
             print("✓")
             print(f"  Saved masked {len(cfg.bands_to_download)}-band TIFF -> {output_tiff}")
 
-            # ==========================================================
             # OmniCloudMask — detect and null-out cloud/shadow pixels
-            # ==========================================================
             print("  Running OmniCloudMask...", end=" ", flush=True)
             cloud_mask = None
             try:
@@ -545,21 +510,37 @@ def main():
             except Exception as e:
                 print(f"  Warning: cloud masking failed for {year}: {e}")
 
-            # ==========================================================
             # Visualisations — cloud mask + RGB from cloud-masked TIFF
-            # ==========================================================
-
-            # 1. Binary cloud mask PNG (1 = clear, 0 = cloud/shadow)
             if cloud_mask is not None:
                 cloud_vis_path = Path(cfg.visualisations_dir) / f"CloudMask_{cfg.aoi_slug}_{year}.png"
                 try:
-                    mask_as_band = cloud_mask[np.newaxis, :, :]  # (1, H, W)
-                    visualise_bands(mask_as_band, cloud_vis_path)
+                    # Read the NoData boundaries from the freshly clipped TIFF
+                    with rasterio.open(output_tiff) as src:
+                        nodata_mask = (src.read(1) == 0)
+                    
+                    # Apply NoData flag (255) to the background outside the AOI
+                    cloud_mask[nodata_mask] = 255
+                    
+                    valid_coords = np.argwhere(~nodata_mask)
+                    if len(valid_coords) >= 2:
+                        r0, c0 = valid_coords[0]
+                        r1, c1 = valid_coords[-1]
+                        cloud_mask[r0, c0] = 0  # Anchor 1: Force one cloud pixel
+                        cloud_mask[r1, c1] = 1  # Anchor 2: Force one clear pixel
+                    
+                    # Save as RGBA representation of Black & White to bypass the LA viewer bug
+                    visualise_bands(
+                        cloud_mask[np.newaxis, ...],  
+                        out_path=cloud_vis_path,
+                        band_indices=[0, 0, 0],       # Forces standard RGBA output
+                        nodata=255,                   # Ensures background transparency
+                        percentile_stretch=(0, 100)    
+                    )
                     print(f"  Saved cloud mask visualisation -> {cloud_vis_path.name}")
                 except Exception as e:
                     print(f"  Warning: cloud mask visualisation failed for {year}: {e}")
 
-            # 2. RGB visualisation
+            # RGB visualisation
             output_png = Path(cfg.visualisations_dir) / f"RGB_{cfg.aoi_slug}_{year}.png"
             try:
                 print(f"  Downloading RGB visualisation from GEE...", end=" ", flush=True)
@@ -587,7 +568,6 @@ def main():
         except Exception as e:
             print(f"  Error during mosaic/visualisation for {year}:\n  {e}")
         finally:
-            # Always clean up temp tiles
             shutil.rmtree(tiles_tmp, ignore_errors=True)
 
 
