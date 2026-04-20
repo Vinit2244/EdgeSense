@@ -11,7 +11,7 @@ ee_project   = 'ee-vinitmehta'                   # GEE project name
 epsg_code    = 4326                              # WGS84 Lat/Lon (Earth Engine standard)
 years        = list(range(2018, 2025))           # Years to analyze (2018-2024 inclusive)
 scale        = 10.0                              # Sentinel-2's native resolution (10m per pixel)
-image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2
+image_collection = 'COPERNICUS/S2_SR_HARMONIZED' # Sentinel-2 or Landsat-8 surface reflectance collection
 start_date = '{year}-10-01'
 end_date   = '{year}-12-31'
 
@@ -38,8 +38,12 @@ swir_band_index       = 4  # B11  <- used for FCC visualisation
 mask_gen_bands        = [1, 0, 2]
 
 # Threshold for forest-range pixels (NDVI >= this value means "forest")
-ndvi_threshold = 0.65
-ndmi_threshold = 0.3
+if image_collection == 'COPERNICUS/S2_SR_HARMONIZED':
+    ndvi_threshold = 0.65
+    ndmi_threshold = 0.3
+elif image_collection == 'LANDSAT/LC08/C02/T1_L2':
+    ndvi_threshold = 0.5
+    ndmi_threshold = 0.3
 
 
 # ============================================================
